@@ -137,21 +137,25 @@ evaluate expression = ContT $ \k -> do
 
 
 ex :: MonadIO m => String -> VimT m ()
-ex expression = {- ContT $ \k -> do
+ex expression =
   liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
     [ JSON.String $ T.pack "ex"
     , JSON.String $ T.pack expression
     ]
 
-  k () -}       do
+redraw :: MonadIO m => Bool -> VimT m ()
+redraw force =
   liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
-    [ JSON.String $ T.pack "ex"
-    , JSON.String $ T.pack expression
+    [ JSON.String $ T.pack "redraw"
+    , JSON.String $ T.pack $ if force then "force" else ""
     ]
 
-redraw :: MonadIO m => VimT m ()
-redraw = undefined
-
+normal :: MonadIO m => String -> VimT m ()
+normal commands =
+  liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
+    [ JSON.String $ T.pack "normal"
+    , JSON.String $ T.pack commands
+    ]
 
 handleMessage :: JSON.Value -> JSON.Value
 handleMessage = id
@@ -172,8 +176,12 @@ main = do
   hSetBuffering stdout LineBuffering
 
   let defaultHandler value = do
-        ex $ "echo 'defaultHandler got message: " <> show value <> "'"
-        ex $ "echo 'test'"
+        ex $ "call ch_setoptions(g:channel, {'timeout': 100})"
+        ex $ "echom 'defaultHandler got message: " <> show value <> "'"
+        lastLine <- evaluate @Integer "line('$')"
+        ex "echom 'test'"
+        normal "gg"
+        --redraw True
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler $ do
     lineNum <- evaluate @Integer "line('.')"
@@ -185,3 +193,4 @@ main = do
         . JSON.decode @JSON.Value
 
   void $ join $ traverse (inputCh . decode) . B.lines <$> B.getContents
+
