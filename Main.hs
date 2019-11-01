@@ -25,7 +25,9 @@ import Data.IORef
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.Maybe
+import Data.Semigroup
 import qualified Data.Text as T
+
 import Data.Vector ((!), (!?))
 import qualified Data.Vector as V
 import Prelude
@@ -135,13 +137,20 @@ evaluate expression = ContT $ \k -> do
 
 
 ex :: MonadIO m => String -> VimT m ()
-ex expression = ContT $ \k -> do
+ex expression = {- ContT $ \k -> do
   liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
     [ JSON.String $ T.pack "ex"
     , JSON.String $ T.pack expression
     ]
 
-  k ()
+  k () -}       do
+  liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
+    [ JSON.String $ T.pack "ex"
+    , JSON.String $ T.pack expression
+    ]
+
+redraw :: MonadIO m => VimT m ()
+redraw = undefined
 
 
 handleMessage :: JSON.Value -> JSON.Value
@@ -162,8 +171,9 @@ main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
 
-  let defaultHandler value =
+  let defaultHandler value = do
         ex $ "echo 'defaultHandler got message: " <> show value <> "'"
+        ex $ "echo 'test'"
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler $ do
     lineNum <- evaluate @Integer "line('.')"
