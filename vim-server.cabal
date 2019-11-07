@@ -26,6 +26,8 @@ executable vim-server
     containers,
     free,
     aeson,
+    mtl,
+    semigroups,
     text,
     transformers,
     vector

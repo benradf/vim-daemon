@@ -33,6 +33,13 @@ import qualified Data.Vector as V
 import Prelude
 import System.IO
 
+import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty (NonEmpty(..))
+import Control.Monad.State
+import Data.Bifunctor
+import Data.Bitraversable
+import Debug.Trace (trace)
+
 
 -- let g:job = job_start(['bash', '-c', 'tee -a /tmp/vim-server.log | dist/build/vim-server/vim-server 2>&1 | tee -a /tmp/vim-server.log'], {'mode': 'json'})
 -- let g:channel = job_getchannel(g:job)
@@ -59,8 +66,8 @@ data Command
 
 data Callback m where
   Callback
-    :: forall a m . JSON.FromJSON a
-    => (a -> ReaderT (MVar (ChannelState m)) m ())
+    :: forall a b m . JSON.FromJSON a
+    => (a -> ReaderT (MVar (ChannelState m)) m b)
     -> Callback m
 
 
@@ -75,7 +82,12 @@ data ChannelState m = ChannelState
 
 type VimT m a = ContT () (ReaderT (MVar (ChannelState m)) m) a
 
-runVimT :: MonadIO m => Channel m -> (JSON.Value -> VimT m a) -> VimT m a -> m (Channel m)
+runVimT
+  :: ( MonadIO m
+     , JSON.FromJSON i
+     , JSON.ToJSON o
+     )
+  => Channel m -> (i -> VimT m o) -> VimT m a -> m (Channel m)
 runVimT output handler m = do
   csRef <- liftIO $ newMVar $ ChannelState
     { csCallbacks = mempty
@@ -93,7 +105,7 @@ runVimT output handler m = do
       let handler (Callback callback) =
             case JSON.parseEither JSON.parseJSON payload of
               Left e2 -> error e2
-              Right x -> runReaderT (callback x) csRef
+              Right x -> void $ runReaderT (callback x) csRef
       case IntMap.lookup seqNum (csCallbacks cs) of
         Just callback -> handler callback  -- TODO: Need to remove callback from map.
         Nothing -> handler $ csDefaultHandler cs
@@ -171,13 +183,19 @@ process msg = case msg of
   _ -> pure ()
 
 
+-- TODO: functionality to "pin visual selection"
+-- this would open a new window just big enough to hold the current selection
+-- and set win min size etc appropriately
+-- it should also return the cursor to exactly where it was in the original
+-- window
+-- maybe it should be bound to a g "go" command?
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
 
   let defaultHandler value = do
         ex $ "call ch_setoptions(g:channel, {'timeout': 100})"
-        ex $ "echom 'defaultHandler got message: " <> show value <> "'"
+        ex $ "echom 'defaultHandler got message: " <> show @String value <> "'"
         lastLine <- evaluate @Integer "line('$')"
         ex "echom 'test'"
         normal "gg"
@@ -194,3 +212,132 @@ main = do
 
   void $ join $ traverse (inputCh . decode) . B.lines <$> B.getContents
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+type Token = Int
+
+type LexerState = [(NE.NonEmpty Char, Token)]
+
+  --case filter (null . fst) newState of
+      --put $ catMaybes $ bitraverse identity Just . first NE.nonEmpty <$> newState
+
+--trace _ = id
+
+lexer :: [Char] -> State LexerState [Token]
+lexer [] = pure []
+lexer string = do
+  (token, string') <- step string
+  case token of
+    Just t -> (t :) <$> lexer string'
+    Nothing -> lexer string'
+
+step :: [Char] -> State LexerState (Maybe Token, [Char])
+step (c : cs) = do
+  existingState <- get
+  
+  reduceResult <- gets $ catMaybes . fmap (reduce c)
+  let newState = catMaybes $ bitraverse id Just . first NE.nonEmpty <$> reduceResult
+
+  if trace ("  c = " <> show c <> "\n  cs = " <> show cs <> "\n  reduceResult = " <> show reduceResult <> "\n  newState = " <> show newState) $ not (null newState) && not (null cs)
+    then trace "CONT" $ put newState $> (Nothing, cs)                         -- Continue trying to match tokens.
+    else case reduceResult of
+      [([], token)] -> trace ("EMIT: " <> show token) $ put tokens $> (Just token, c : cs)  -- Emit a token.
+      [] -> trace ("SKIP") $ put tokens $> (Nothing, cs)  -- Skip letters not part of known token.
+      _ -> error "ambiguous"
+
+-- TODO: Move the string being parsed into the state and use it for back tracking
+
+data TokenMatcher
+  = TokenMatching Token (NE.NonEmpty Char)
+  | TokenMatched Token [Char]  -- where [Char] is string to continue from if we back track here
+
+step [] = trace "DONE" $ pure (Nothing, [])
+
+reduce :: Char -> (NE.NonEmpty Char, Token) -> Maybe ([Char], Token)
+reduce c' (c :| cs, token) = guard (c == c') *> Just (cs, token)
+
+tokens :: [(NE.NonEmpty Char, Token)]
+tokens =
+  [ (NE.fromList "->", 1)
+  , (NE.fromList "-->", 2)
+  , (NE.fromList "<-", 3)
+  , (NE.fromList "::", 4)
+  , (NE.fromList ":::", 5)
+  , (NE.fromList "=>", 6)
+  , (NE.fromList "$", 7)
+  ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{-
+data Location = Location
+  { line :: Integer
+  , column :: Integer
+  }
+
+data Range = Range
+  { from :: Location
+  , to :: Location
+  }
+
+--   ( x -> ( a -> b ) -> c -> ( d -> e -> f ) )
+
+tokens =
+  [ ("->", Arrow)
+  , ("(", LeftParen)
+  , (")", RightParen)
+  , ("::", TypeAnnotation)
+  , ("\n", NewLine)
+  ]
+
+tokenize :: [Char] -> [Token]
+
+data Node
+  = Leaf Range Range -- inner and outer ranges
+  | Node [Node]
+
+data Context
+  = Root
+  | Context [Node] Context [Node]
+
+data Selection
+  = Selection [Node] Context
+
+extendLeft :: Selection -> Maybe Selection
+extendLeft (Selection _ Root) = Nothing
+extendLeft (Selection nodes (Context [] _ _)) = Nothing
+extendLeft (Selection nodes (Context (l : ls) c rs)) =
+  Just $ Selection (l : nodes) (Context ls c rs)
+
+extendUp :: Selection -> Maybe Selection
+extendUp (Selection _ Root) = Nothing
+extendUp (Selection nodes (Context ls c rs)) =
+  Just $ Selection (reverse ls ++ nodes ++ rs) c
+-}
