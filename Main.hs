@@ -256,14 +256,13 @@ step (c : cs) = do
       [([], token)] -> trace ("EMIT: " <> show token) $ put tokens $> (Just token, c : cs)  -- Emit a token.
       [] -> trace ("SKIP") $ put tokens $> (Nothing, cs)  -- Skip letters not part of known token.
       _ -> error "ambiguous"
+step [] = trace "DONE" $ pure (Nothing, [])
+
 
 -- TODO: Move the string being parsed into the state and use it for back tracking
-
 data TokenMatcher
   = TokenMatching Token (NE.NonEmpty Char)
   | TokenMatched Token [Char]  -- where [Char] is string to continue from if we back track here
-
-step [] = trace "DONE" $ pure (Nothing, [])
 
 reduce :: Char -> (NE.NonEmpty Char, Token) -> Maybe ([Char], Token)
 reduce c' (c :| cs, token) = guard (c == c') *> Just (cs, token)
