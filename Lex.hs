@@ -24,6 +24,8 @@ import qualified Data.Tree as Tree
 
 import Debug.Trace (trace)
 import System.IO.Unsafe (unsafePerformIO)
+import qualified Data.Tree.Pretty as Pretty
+
 
 
 data LexTree a
@@ -47,15 +49,20 @@ instance Functor LexTree where
 --instance Alternative L
 
 
-lexTreeToTree :: Show a => LexTree a -> Tree String
-lexTreeToTree = \case
-  ConsumeChar f ->
-    let g c = lexTreeToTree <$> f c
-    in Tree.Node ("ConsumeChar '") $
-      g =<< [ minBound .. maxBound ]
-  YieldToken a ->
-    Tree.Node ("YieldToken '" <> show a <> "'") []
+lexTreeToForest
+  :: (Bounded a, Enum a, Ord a, Show a)
+  => [a] -> LexTree a -> Tree.Forest String
 
+lexTreeToForest tokens = \case
+  ConsumeChar f ->
+    let g c = Tree.Node ("ConsumeChar " <> show c) <$> (lexTreeToForest tokens <$> f c)
+    in g =<< characters
+
+  YieldToken a ->
+    pure $ Tree.Node ("YieldToken '" <> show a <> "'") []
+
+  where
+    characters = List.nub $ show =<< tokens
 
 makeLexTree :: Show a => [a] -> Either String (LexTree a)
 makeLexTree = lexTree . map (NonEmpty.fromList . show &&& id)
@@ -78,7 +85,10 @@ lexTree
     )
   . groupByFirstChar
 
-  where
+
+--fix :: (a -> a) -> a
+--fix f = f (fix f)
+
 
 factorFirstChar :: NonEmpty (NonEmpty a, b) -> (a, NonEmpty ([a], b))
 factorFirstChar g@((c :| _, _) :| _) = (c, NonEmpty.map (first NonEmpty.tail) g)
@@ -98,20 +108,28 @@ lexer :: Show a => [LexTree a] -> NonEmpty Char -> State [LexTree a] [a]
 lexer init (c :| cs) = do
   trees0 <- get
 
-  trees' <- trace ("trees0 = " <> show (map printLexTree trees0)) $ gets $ step c
+  trees' <- gets $ step c
 
-  () <- trace ("c = " <> show c <> ", cs = " <> show cs <> ", trees' = " <> show (map printLexTree trees')) $
-    put $ if null trees' then init else trees'
+  put $ if null trees' then init else trees'
 
   foo <- get
   
 
-  trace ("trees* = " <> show (map printLexTree foo)) $
-    case (NonEmpty.nonEmpty cs, trees') of
-      (Just s, YieldToken t : _) -> trace "???" $ (t :) <$> (put init *> lexer init s)    -- put init $> (t :) <*> lexer init s
-      (Just s, _               ) ->                       lexer init s
-      (Nothing, _              ) -> pure $ maybeToList . listToMaybe
-                                         $ mapMaybe fromYield trees'
+  case (NonEmpty.nonEmpty cs, trees') of
+    (Just s, YieldToken t : _) -> (t :) <$> (put init *> lexer init s)    -- put init $> (t :) <*> lexer init s
+    (Just s, _               ) ->                       lexer init s
+    (Nothing, _              ) -> pure $ maybeToList . listToMaybe
+                                       $ mapMaybe fromYield trees'
+
+printLexTree
+  :: (Bounded a, Enum a, Ord a, Show a)
+  => [a] -> LexTree a -> String
+
+printLexTree tokens lt = Pretty.drawVerticalForest
+                       $ lexTreeToForest tokens lt
+
+
+
 
 --  emitToken <- case trees' of
 --                  YieldToken t : _ -> trace "emitToken: YIELD" $
@@ -141,8 +159,10 @@ lexer init (c :| cs) = do
 --                    Nothing -> trace ("string' IS empty, trees' = " <> show (map printLexTree trees')) $
 --                      pure $ maybeToList . listToMaybe $ mapMaybe fromYield trees'
 
-printLexTree :: Show a => LexTree a -> String
-printLexTree _ = "*"
+--testTree = lexTreeToForest tokens testLexTree
+--putStrLn $ Pretty.drawVerticalTree testTree
+
+
 --printLexTree :: Show a => LexTree a -> String
 --printLexTree v = show (hashStableName $ unsafePerformIO (makeStableName v)) <> ": " <> case v of
 --  ConsumeChar f -> "ConsumeChar"
@@ -219,7 +239,7 @@ annotateGroup g@((c :| _, _) :| _) = (c, g)
 
 
 data Token = Alpha | Beta | Gamma | Delta | Epsilon
-  deriving (Bounded, Enum, Show)
+  deriving (Bounded, Enum, Eq, Ord, Show)
 
 tokens :: [Token]
 tokens = [ minBound .. maxBound ]
