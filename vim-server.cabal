@@ -17,8 +17,8 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 executable vim-server
-  main-is:             Main.hs
-  -- other-modules:
+  main-is:       Main.hs
+  other-modules: Lex
   -- other-extensions:
   build-depends:
     base >=4.10 && <4.13,

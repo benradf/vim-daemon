@@ -264,7 +264,10 @@ data TokenMatcher
   = TokenMatching Token (NE.NonEmpty Char)
   | TokenMatched Token [Char]  -- where [Char] is string to continue from if we back track here
 
-reduce :: Char -> (NE.NonEmpty Char, Token) -> Maybe ([Char], Token)
+reduce
+  :: Char
+  -> (NE.NonEmpty Char, Token)
+  -> Maybe ([Char], Token)
 reduce c' (c :| cs, token) = guard (c == c') *> Just (cs, token)
 
 tokens :: [(NE.NonEmpty Char, Token)]
@@ -277,11 +280,6 @@ tokens =
   , (NE.fromList "=>", 6)
   , (NE.fromList "$", 7)
   ]
-
-
-
-
-
 
 
 
