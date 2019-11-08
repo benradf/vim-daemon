@@ -27,6 +27,7 @@ executable vim-server
     free,
     aeson,
     mtl,
+    pretty-tree,
     semigroups,
     text,
     transformers,
