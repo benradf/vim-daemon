@@ -29,8 +29,8 @@ import qualified Data.Tree.Pretty as Pretty
 
 
 data LexTree a
-    = ConsumeChar (Char -> [LexTree a])  -- list for back tracking
-    | YieldToken a
+  = ConsumeChar (Char -> [LexTree a])  -- list for back tracking
+  | YieldToken a
 
 fromYield :: LexTree a -> Maybe a
 fromYield (YieldToken x) = Just x
@@ -41,27 +41,43 @@ instance Functor LexTree where
     ConsumeChar g -> ConsumeChar (map (fmap f) . g)
     YieldToken x -> YieldToken (f x)
 
---instance Applicative LexTree where
---  pure = YieldToken
---  (<*>) = curry $ \case
---    (YieldToken _, YieldToken _) -> undefined
---    (ConsumeChar f, _) -> undefin
---instance Alternative L
+instance Applicative LexTree where
+  pure = YieldToken
+  (<*>) = curry $ \case
+    (YieldToken f, YieldToken x) -> YieldToken (f x)
+    (ConsumeChar f, x@(YieldToken _)) -> ConsumeChar $ \c -> [ f' <*> x | f' <- f c ]
+    (f@(YieldToken _), ConsumeChar x) -> ConsumeChar $ \c -> [ f <*> x' | x' <- x c ]
+    (ConsumeChar f, ConsumeChar x) -> ConsumeChar $ \c -> [ f' <*> x' | f' <- f c, x' <- x c ]
+
+instance Monad LexTree where
+  m >>= f =
+    let join = \case
+          YieldToken x -> x
+          ConsumeChar g -> ConsumeChar $ fmap join . g
+    in join $ fmap f m
+      
+instance Alternative LexTree where
+  empty = ConsumeChar mempty
+  x@(YieldToken _) <|> _ = x
+  _ <|> y = y
 
 
-lexTreeToForest
+lexTreeToTree
   :: (Bounded a, Enum a, Ord a, Show a)
-  => [a] -> LexTree a -> Tree.Forest String
+  => [a] -> LexTree a -> Tree String
 
-lexTreeToForest tokens = \case
+-- TODO: take title and create node one layer down
+
+lexTreeToTree tokens = \case
   ConsumeChar f ->
-    let g c = Tree.Node ("ConsumeChar " <> show c) <$> (lexTreeToForest tokens <$> f c)
-    in g =<< characters
+    let g c = Tree.Node (show c) (lexTreeToTree tokens <$> f c)
+    in Tree.Node "ConsumeChar" $ g <$> characters
 
   YieldToken a ->
-    pure $ Tree.Node ("YieldToken '" <> show a <> "'") []
+    Tree.Node ("YieldToken '" <> show a <> "'") []
 
   where
+    characters :: [Char]
     characters = List.nub $ show =<< tokens
 
 makeLexTree :: Show a => [a] -> Either String (LexTree a)
@@ -119,14 +135,14 @@ lexer init (c :| cs) = do
     (Just s, YieldToken t : _) -> (t :) <$> (put init *> lexer init s)    -- put init $> (t :) <*> lexer init s
     (Just s, _               ) ->                       lexer init s
     (Nothing, _              ) -> pure $ maybeToList . listToMaybe
-                                       $ mapMaybe fromYield trees'
+                                       $ mapMaybe fromYield trees' -- TODO: Use <|> instead
 
 printLexTree
   :: (Bounded a, Enum a, Ord a, Show a)
   => [a] -> LexTree a -> String
 
-printLexTree tokens lt = Pretty.drawVerticalForest
-                       $ lexTreeToForest tokens lt
+printLexTree tokens lt = Pretty.drawVerticalTree
+                       $ lexTreeToTree tokens lt
 
 
 
@@ -159,7 +175,7 @@ printLexTree tokens lt = Pretty.drawVerticalForest
 --                    Nothing -> trace ("string' IS empty, trees' = " <> show (map printLexTree trees')) $
 --                      pure $ maybeToList . listToMaybe $ mapMaybe fromYield trees'
 
---testTree = lexTreeToForest tokens testLexTree
+--testTree = lexTreeToTree tokens testLexTree
 --putStrLn $ Pretty.drawVerticalTree testTree
 
 
