@@ -82,8 +82,8 @@ lexTreeToTree tokens = \case
     characters :: [Char]
     characters = List.nub $ show =<< tokens
 
-makeLexTree :: Show a => [a] -> Either String (LexTree a)
-makeLexTree = go . map (NonEmpty.fromList . show &&& id)
+makeLexTreeOld :: Show a => [a] -> Either String (LexTree a)
+makeLexTreeOld = go . map (NonEmpty.fromList . show &&& id)
   where
   -- POSSIBLE SOLUTION: Make LexTree infinite. Where it would previously return [] to indicate
   -- no parse available, now have it return a singleton list containing the root of the tree.
@@ -95,15 +95,37 @@ makeLexTree = go . map (NonEmpty.fromList . show &&& id)
     . sequenceA
     . map
       ( traverse
-        ( fmap (uncurry $ flip (:))
+        ( {- fmap (uncurry $ flip (:))
         . bitraverse
             (Right . map (YieldToken . snd))
             (go . map (first NonEmpty.fromList))
-        . NonEmpty.partition (null . fst)
+        . NonEmpty.partition (null . fst) -}
+        -- Case match here and when list is singleton, just map YieldToken onto it.
+        -- This way we should avoid a ConsumeChar function that only returns empty
+        -- list (and thereby avoid eating an extra character after the token).
+
+        -- NonEmpty ([Char], a1) -> Either String [LexTree a1]
+
+        \case
+          ([], t) :| [] -> Right [ YieldToken t ]
+          xs -> fmap (uncurry $ flip (:))
+              . bitraverse
+                  (Right . map (YieldToken . snd))
+                  (go . map (first NonEmpty.fromList))
+              . NonEmpty.partition (null . fst)
+              $ xs
+
         )
       . factorFirstChar
       )
     . groupByFirstChar
+
+
+makeLexTree :: [a] -> Either String (LexTree a)
+makeLexTree = undefined
+
+-- factorFirstChar :: NonEmpty (NonEmpty a, b) -> (a, NonEmpty ([a], b))
+-- groupByFirstChar :: Eq a => [(NonEmpty a, b)] -> [NonEmpty (NonEmpty a, b)]
 
 
 --fix :: (a -> a) -> a
@@ -128,31 +150,22 @@ lexer2 trees0 = go trees0
 lexer :: LexTree a -> String -> [a]
 lexer tree string = do
   guard $ not $ null string
+
   case runStateT attempt (pure tree, string) of
     Just (token, (_, string')) -> token : lexer tree string'
     Nothing -> lexer tree $ tail string
+
   where
     attempt :: StateT ([LexTree a], String) Maybe a
     attempt = gets fst >>= \case
       YieldToken token : _ -> pure token
-      []                   -> empty
-      _                    -> step
-        
+      [] -> empty
+      _ -> step
 
     step = gets (second NonEmpty.nonEmpty) >>= \case
       (trees, Just (c :| cs)) ->
         put (runLexTree c =<< trees, cs) *> attempt
       (_, Nothing) -> empty
-
-    --attempt = gets (second NonEmpty.nonEmpty) >>= \case
-    --  (trees, Just (c :| cs)) -> do
-    --    put (step c trees, cs)
-    --    gets fst >>= \case
-    --      YieldToken t : _ -> pure t
-    --      _                -> attempt
-    --  (_, Nothing) -> lift Nothing
-
-
 
 
 runLexTree :: Char -> LexTree a -> [LexTree a]
@@ -298,10 +311,11 @@ annotateGroup g@((c :| _, _) :| _) = (c, g)
 
 
 
-data Token = Alpha | Beta | Gamma | Delta | Epsilon
+data Token = Alpha | Beta | Gamma | Delta | Epsilon | X
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 tokens :: [Token]
 tokens = [ minBound .. maxBound ]
 
-testLexTree = either (const $ ConsumeChar mempty) id $ makeLexTree tokens
+testLexTree :: LexTree Token
+testLexTree = either (const $ ConsumeChar mempty) id $ makeLexTreeOld tokens
