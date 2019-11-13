@@ -5,8 +5,10 @@ module Lex where
 import Control.Applicative (Alternative(..))
 import Data.Functor (($>))
 import Control.Arrow ((&&&))
-import Control.Monad (join, when)
+import Control.Monad (guard, join, when)
 import Control.Monad.State (State, get, gets, modify, put, runState)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (StateT(..))
 import Data.Bifunctor (bimap, first, second)
 import Data.Bitraversable (bitraverse)
 import Data.List (groupBy)
@@ -81,25 +83,27 @@ lexTreeToTree tokens = \case
     characters = List.nub $ show =<< tokens
 
 makeLexTree :: Show a => [a] -> Either String (LexTree a)
-makeLexTree = lexTree . map (NonEmpty.fromList . show &&& id)
-
-
-lexTree :: [(NonEmpty Char, a)] -> Either String (LexTree a)
-lexTree
-  = fmap ConsumeChar 
-  . fmap (\xs c -> join $ maybeToList $ snd <$> List.find ((c ==) . fst) xs)
-  . sequenceA
-  . map
-    ( traverse
-      ( fmap (uncurry $ flip (:))
-      . bitraverse
-          (Right . map (YieldToken . snd))
-          (lexTree . map (first NonEmpty.fromList))
-      . NonEmpty.partition (null . fst)
+makeLexTree = go . map (NonEmpty.fromList . show &&& id)
+  where
+  -- POSSIBLE SOLUTION: Make LexTree infinite. Where it would previously return [] to indicate
+  -- no parse available, now have it return a singleton list containing the root of the tree.
+  -- Then no need for back tracking or resetting the lex tree inside the lexerOld.
+  go :: [(NonEmpty Char, a)] -> Either String (LexTree a)
+  go
+    = fmap ConsumeChar 
+    . fmap (\xs c -> join $ maybeToList $ snd <$> List.find ((c ==) . fst) xs)
+    . sequenceA
+    . map
+      ( traverse
+        ( fmap (uncurry $ flip (:))
+        . bitraverse
+            (Right . map (YieldToken . snd))
+            (go . map (first NonEmpty.fromList))
+        . NonEmpty.partition (null . fst)
+        )
+      . factorFirstChar
       )
-    . factorFirstChar
-    )
-  . groupByFirstChar
+    . groupByFirstChar
 
 
 --fix :: (a -> a) -> a
@@ -111,6 +115,45 @@ factorFirstChar g@((c :| _, _) :| _) = (c, NonEmpty.map (first NonEmpty.tail) g)
 
 
 
+lexer2 :: [LexTree a] -> NonEmpty Char -> [a]
+lexer2 trees0 = go trees0
+  where
+    --go :: _
+    go trees (c :| cs) =
+      let trees' = step c trees
+      in case (NonEmpty.nonEmpty cs, trees') of
+          (Just s, YieldToken t : _) -> undefined
+
+
+lexer :: LexTree a -> String -> [a]
+lexer tree string = do
+  guard $ not $ null string
+  case runStateT attempt (pure tree, string) of
+    Just (token, (_, string')) -> token : lexer tree string'
+    Nothing -> lexer tree $ tail string
+  where
+    attempt :: StateT ([LexTree a], String) Maybe a
+    attempt = gets fst >>= \case
+      YieldToken token : _ -> pure token
+      []                   -> empty
+      _                    -> step
+        
+
+    step = gets (second NonEmpty.nonEmpty) >>= \case
+      (trees, Just (c :| cs)) ->
+        put (runLexTree c =<< trees, cs) *> attempt
+      (_, Nothing) -> empty
+
+    --attempt = gets (second NonEmpty.nonEmpty) >>= \case
+    --  (trees, Just (c :| cs)) -> do
+    --    put (step c trees, cs)
+    --    gets fst >>= \case
+    --      YieldToken t : _ -> pure t
+    --      _                -> attempt
+    --  (_, Nothing) -> lift Nothing
+
+
+
 
 runLexTree :: Char -> LexTree a -> [LexTree a]
 runLexTree c = \case
@@ -118,10 +161,11 @@ runLexTree c = \case
   t@(YieldToken _) -> pure t
 
 step :: Char -> [LexTree a] -> [LexTree a]
-step c trees = runLexTree c =<< trees
+--step c trees = runLexTree c =<< trees
+step = (=<<) . runLexTree
 
-lexer :: Show a => [LexTree a] -> NonEmpty Char -> State [LexTree a] [a]
-lexer init (c :| cs) = do
+lexerOld :: Show a => [LexTree a] -> NonEmpty Char -> State [LexTree a] [a]
+lexerOld init (c :| cs) = do
   trees0 <- get
 
   trees' <- gets $ step c
@@ -132,8 +176,8 @@ lexer init (c :| cs) = do
   
 
   case (NonEmpty.nonEmpty cs, trees') of
-    (Just s, YieldToken t : _) -> (t :) <$> (put init *> lexer init s)    -- put init $> (t :) <*> lexer init s
-    (Just s, _               ) ->                       lexer init s
+    (Just s, YieldToken t : _) -> (t :) <$> (put init *> lexerOld init s)    -- put init $> (t :) <*> lexerOld init s
+    (Just s, _               ) ->                       lexerOld init s
     (Nothing, _              ) -> pure $ maybeToList . listToMaybe
                                        $ mapMaybe fromYield trees' -- TODO: Use <|> instead
 
@@ -153,7 +197,7 @@ printLexTree tokens lt = Pretty.drawVerticalTree
 --                  _ -> trace "emitToken: NONE" $ pure id
 --
 --  emitToken $ case NonEmpty.nonEmpty cs of
---    Just string' -> trace "RECURSE" $ lexer init string'
+--    Just string' -> trace "RECURSE" $ lexerOld init string'
 --    Nothing -> trace "DONE" $ pure $ maybeToList . listToMaybe
 --                    $ mapMaybe fromYield trees'
 
@@ -171,7 +215,7 @@ printLexTree tokens lt = Pretty.drawVerticalTree
 --  action $ case NonEmpty.nonEmpty string' of
 --                    Just s -> trace "string' NOT empty" $ do
 --                      modify $ first $ const s
---                      lexer init
+--                      lexerOld init
 --                    Nothing -> trace ("string' IS empty, trees' = " <> show (map printLexTree trees')) $
 --                      pure $ maybeToList . listToMaybe $ mapMaybe fromYield trees'
 
