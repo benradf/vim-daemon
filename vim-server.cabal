@@ -28,7 +28,10 @@ executable vim-server
     aeson,
     mtl,
     pretty-tree,
+    QuickCheck,
     semigroups,
+    tasty,
+    tasty-quickcheck,
     text,
     transformers,
     vector

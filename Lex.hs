@@ -24,9 +24,35 @@ import Data.Semigroup ((<>))
 import Data.Tree (Tree(..))
 import qualified Data.Tree as Tree
 
+import qualified Test.Tasty as Tasty
+import qualified Test.Tasty.QuickCheck as Tasty
+import qualified Test.QuickCheck as QuickCheck
+
 import Debug.Trace (trace)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Tree.Pretty as Pretty
+
+newtype TokenList a = TokenList
+  { unTokenString :: [a]
+  }
+
+instance Show a => Show (TokenList a) where
+  show (TokenList ts) = ts >>= show
+
+prop_LexerWorks :: [Token] -> Bool
+prop_LexerWorks tokens =
+  let string = show =<< tokens
+  in (lexer testLexTree string >>= show) == string
+
+instance QuickCheck.Arbitrary Token where
+  arbitrary = QuickCheck.arbitraryBoundedEnum
+
+
+main :: IO ()
+main = Tasty.defaultMain $
+  Tasty.testGroup "Lexer Tests"
+    [ Tasty.testProperty "Lexer Works" prop_LexerWorks
+    ]
 
 
 
