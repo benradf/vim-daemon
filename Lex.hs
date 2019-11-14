@@ -1,6 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Lex where
+module Lex
+  ( LexTree
+  , main
+  , makeLexTree
+  , runLexer
+  ) where
 
 import Control.Applicative (Alternative(..))
 import Data.Functor (($>))
