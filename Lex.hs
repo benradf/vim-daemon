@@ -157,28 +157,34 @@ makeLexTreeOld = go . map (NonEmpty.fromList . show &&& id)
     factorFirstChar :: NonEmpty (NonEmpty a, b) -> (a, NonEmpty ([a], b))
     factorFirstChar g@((c :| _, _) :| _) = (c, NonEmpty.map (first NonEmpty.tail) g)
 
-makeLexTree2 :: Map String a -> LexTree a
-makeLexTree2 = go . map (first NonEmpty.fromList) . Map.toList
-  where
-    go :: [(NonEmpty Char, a)] -> LexTree a
-    go
-      = makeConsumeCharNode
-      . map (fmap groupToLexTree . extractFirstChar)
-      . groupByFirstChar
 
-    makeConsumeCharNode :: [(Char, [LexTree a])] -> LexTree a
-    makeConsumeCharNode choices = ConsumeChar $ \c ->
+
+
+makeLexTree :: Map String a -> LexTree a
+makeLexTree = go . Map.toList . Map.delete ""
+  where
+    go :: [(String, a)] -> LexTree a
+    go
+      = makeConsumeNode
+      . map
+        ( makeChildTrees
+        . extractFirstChar
+        )
+      . groupByFirstChar
+      . prepareNonEmpty
+
+    makeConsumeNode :: [(Char, [LexTree a])] -> LexTree a
+    makeConsumeNode choices = ConsumeChar $ \c ->
       join $ maybeToList $ snd <$> List.find ((c ==) . fst) choices
 
-    groupToLexTree :: NonEmpty ([Char], a) -> [LexTree a]
-    groupToLexTree = \case
-      ([], t) :| [] -> [ YieldToken t ]
-      xs -> (uncurry $ flip (:))
-          . bimap
-              (map (YieldToken . snd))
-              (go . map (first NonEmpty.fromList))
-          . NonEmpty.partition (null . fst)
-          $ xs
+    makeChildTrees :: (Char, NonEmpty ([Char], a)) -> (Char, [LexTree a])
+    makeChildTrees = fmap $ \case
+      ([], t) :| [] ->
+        [ YieldToken t ]
+      elems ->
+        let makeYieldLeaves = map $ YieldToken . snd
+            splitOngoingFromFinished = NonEmpty.partition (not . null . fst)
+        in uncurry (:) . bimap go makeYieldLeaves . splitOngoingFromFinished $ elems
 
     extractFirstChar :: NonEmpty (NonEmpty Char, a) -> (Char, NonEmpty ([Char], a))
     extractFirstChar group@((c :| _, _) :| _) = (c, NonEmpty.map (first NonEmpty.tail) group)
@@ -186,12 +192,27 @@ makeLexTree2 = go . map (first NonEmpty.fromList) . Map.toList
     groupByFirstChar :: [(NonEmpty Char, a)] -> [NonEmpty (NonEmpty Char, a)]
     groupByFirstChar = NonEmpty.groupBy $ curry $ uncurry (==) . join bimap (NonEmpty.head . fst)
 
+    prepareNonEmpty :: [(String, a)] -> [(NonEmpty Char, a)]
+    prepareNonEmpty = map (first NonEmpty.fromList)
+
+
+--  DECISION: The above is good. Be concrete with String and Char.
 --  What level of polymorphism should the above be on? Consider:
 --    extractFirst :: NonEmpty (NonEmpty a, b) -> (a, NonEmpty ([a], b))
 --    groupByFirst :: Eq a => [(NonEmpty a, b)] -> [NonEmpty (NonEmpty a, b)]
 
-makeLexTree :: Show a => [a] -> Either String (LexTree a)
-makeLexTree = go . map (NonEmpty.fromList . show &&& id)
+
+--        (uncurry (:)) . bimap
+--          (go . map (first NonEmpty.fromList))
+--          (map (YieldToken . snd))
+--          . NonEmpty.partition (not . null . fst)       -- Have switched polarity - check still works.
+--          $ xs
+
+
+
+
+makeLexTree2 :: Show a => [a] -> Either String (LexTree a)
+makeLexTree2 = go . map (NonEmpty.fromList . show &&& id)
   where
     go :: [(NonEmpty Char, a)] -> Either String (LexTree a)
     go
@@ -267,5 +288,12 @@ data Token = Alpha | Beta | Gamma | Delta | Epsilon | X
 tokens :: [Token]
 tokens = [ minBound .. maxBound ]
 
+testLexTreeOld :: LexTree Token
+testLexTreeOld = either (const $ ConsumeChar mempty) id $ makeLexTreeOld tokens
+
 testLexTree :: LexTree Token
-testLexTree = either (const $ ConsumeChar mempty) id $ makeLexTreeOld tokens
+testLexTree
+  = makeLexTree
+  $ Map.fromList
+  $ map (show &&& id)
+  $ tokens
