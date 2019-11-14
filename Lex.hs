@@ -162,15 +162,15 @@ makeLexTree2 = go . map (first NonEmpty.fromList) . Map.toList
   where
     go :: [(NonEmpty Char, a)] -> LexTree a
     go
-      = consumeChar
-      . map (fmap groupToLexTree . factorFirstChar)
+      = makeConsumeCharNode
+      . map (fmap groupToLexTree . extractFirstChar)
       . groupByFirstChar
 
-    consumeChar :: [(Char, [LexTree a])] -> LexTree a
-    consumeChar choices = ConsumeChar $ \c ->
+    makeConsumeCharNode :: [(Char, [LexTree a])] -> LexTree a
+    makeConsumeCharNode choices = ConsumeChar $ \c ->
       join $ maybeToList $ snd <$> List.find ((c ==) . fst) choices
 
-    groupToLexTree :: NonEmpty ([Char], a1) -> [LexTree a1]
+    groupToLexTree :: NonEmpty ([Char], a) -> [LexTree a]
     groupToLexTree = \case
       ([], t) :| [] -> [ YieldToken t ]
       xs -> (uncurry $ flip (:))
@@ -180,11 +180,15 @@ makeLexTree2 = go . map (first NonEmpty.fromList) . Map.toList
           . NonEmpty.partition (null . fst)
           $ xs
 
-    factorFirstChar :: NonEmpty (NonEmpty a, b) -> (a, NonEmpty ([a], b))
-    factorFirstChar g@((c :| _, _) :| _) = (c, NonEmpty.map (first NonEmpty.tail) g)
+    extractFirstChar :: NonEmpty (NonEmpty Char, a) -> (Char, NonEmpty ([Char], a))
+    extractFirstChar group@((c :| _, _) :| _) = (c, NonEmpty.map (first NonEmpty.tail) group)
 
-    groupByFirstChar :: Eq a => [(NonEmpty a, b)] -> [NonEmpty (NonEmpty a, b)]
+    groupByFirstChar :: [(NonEmpty Char, a)] -> [NonEmpty (NonEmpty Char, a)]
     groupByFirstChar = NonEmpty.groupBy $ curry $ uncurry (==) . join bimap (NonEmpty.head . fst)
+
+--  What level of polymorphism should the above be on? Consider:
+--    extractFirst :: NonEmpty (NonEmpty a, b) -> (a, NonEmpty ([a], b))
+--    groupByFirst :: Eq a => [(NonEmpty a, b)] -> [NonEmpty (NonEmpty a, b)]
 
 makeLexTree :: Show a => [a] -> Either String (LexTree a)
 makeLexTree = go . map (NonEmpty.fromList . show &&& id)
