@@ -40,6 +40,8 @@ import Data.Bifunctor
 import Data.Bitraversable
 import Debug.Trace (trace)
 
+import qualified Lex as Lex
+
 
 -- let g:job = job_start(['bash', '-c', 'tee -a /tmp/vim-server.log | dist/build/vim-server/vim-server 2>&1 | tee -a /tmp/vim-server.log'], {'mode': 'json'})
 -- let g:channel = job_getchannel(g:job)
@@ -191,6 +193,9 @@ process msg = case msg of
 -- maybe it should be bound to a g "go" command?
 main :: IO ()
 main = do
+  Lex.main
+
+oldMain = do
   hSetBuffering stdout LineBuffering
 
   let defaultHandler value = do
