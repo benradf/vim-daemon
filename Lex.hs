@@ -74,7 +74,7 @@ makeLexTree = go . Map.toList . Map.delete ""
         . extractFirstChar
         )
       . groupByFirstChar
-      . prepareNonEmpty
+      . coerceNonEmpty
 
     makeConsumeNode :: [(Char, [LexTree a])] -> LexTree a
     makeConsumeNode choices = ConsumeChar $ \c ->
@@ -95,8 +95,8 @@ makeLexTree = go . Map.toList . Map.delete ""
     groupByFirstChar :: [(NonEmpty Char, a)] -> [NonEmpty (NonEmpty Char, a)]
     groupByFirstChar = NonEmpty.groupBy $ curry $ uncurry (==) . join bimap (NonEmpty.head . fst)
 
-    prepareNonEmpty :: [(String, a)] -> [(NonEmpty Char, a)]
-    prepareNonEmpty = map (first NonEmpty.fromList)
+    coerceNonEmpty :: [(String, a)] -> [(NonEmpty Char, a)]
+    coerceNonEmpty = map (first NonEmpty.fromList)
 
 
 lexer :: LexTree a -> String -> [a]
