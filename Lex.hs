@@ -45,7 +45,7 @@ instance Show a => Show (TokenList a) where
 prop_LexerWorks :: [Token] -> Bool
 prop_LexerWorks tokens =
   let string = show =<< tokens
-  in (lexer lexTree string >>= show) == string
+  in (lexer string >>= show) == string
 
 instance QuickCheck.Arbitrary Token where
   arbitrary = QuickCheck.arbitraryBoundedEnum
@@ -99,13 +99,13 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty = map (first NonEmpty.fromList)
 
 
-lexer :: LexTree a -> String -> [a]
-lexer tree string = do
+runLexer :: LexTree a -> String -> [a]
+runLexer tree string = do
   guard $ not $ null string
 
   case runStateT attempt (pure tree, string) of
-    Just (token, (_, string')) -> token : lexer tree string'
-    Nothing -> lexer tree $ tail string
+    Just (token, (_, string')) -> token : runLexer tree string'
+    Nothing -> runLexer tree $ tail string
 
   where
     attempt :: StateT ([LexTree a], String) Maybe a
@@ -136,6 +136,9 @@ lexTree
   $ Map.fromList
   $ map (show &&& id)
   $ tokens
+
+lexer :: String -> [Token]
+lexer = runLexer lexTree
 
 
 -- Idea For Another Vim Service / Plugin:
