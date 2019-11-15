@@ -40,7 +40,9 @@ import Data.Bifunctor
 import Data.Bitraversable
 import Debug.Trace (trace)
 
+import qualified Test.Tasty as Tasty
 import qualified Lex as Lex
+import qualified CommaTextObject as CommaTextObject
 
 
 -- let g:job = job_start(['bash', '-c', 'tee -a /tmp/vim-server.log | dist/build/vim-server/vim-server 2>&1 | tee -a /tmp/vim-server.log'], {'mode': 'json'})
@@ -193,7 +195,10 @@ process msg = case msg of
 -- maybe it should be bound to a g "go" command?
 main :: IO ()
 main = do
-  Lex.main
+  Tasty.defaultMain $ Tasty.testGroup "All Tests"
+    [ CommaTextObject.tests
+    , Lex.tests
+    ]
 
 oldMain = do
   hSetBuffering stdout LineBuffering
@@ -285,7 +290,6 @@ tokens =
   , (NE.fromList "=>", 6)
   , (NE.fromList "$", 7)
   ]
-
 
 
 

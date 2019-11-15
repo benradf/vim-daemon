@@ -4,10 +4,10 @@
 module Lex
   ( Located
   , LexTree
-  , main
   , makeLexTree
   , makeLocatedString
   , runLexer
+  , tests
   , unLocated
   ) where
 
@@ -61,13 +61,13 @@ instance QuickCheck.Arbitrary Token where
   arbitrary = QuickCheck.arbitraryBoundedEnum
 
 
-main :: IO ()
-main = Tasty.defaultMain $ Tasty.testGroup "All Tests"
-  [ Tasty.testGroup "Lexer Tests"
+tests :: Tasty.TestTree
+tests = Tasty.testGroup "module Lex"
+  [ Tasty.testGroup "QuickCheck"
     [ QuickCheck.testProperty "Lexer Works" prop_LexerWorks
     ]
 
-  , Tasty.testGroup "Regression Tests"
+  , Tasty.testGroup "Regression"
     [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
         let string = "<-=>"
         let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
