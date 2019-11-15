@@ -1,10 +1,14 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 
 module Lex
-  ( LexTree
+  ( Located
+  , LexTree
   , main
   , makeLexTree
+  , makeLocatedString
   , runLexer
+  , unLocated
   ) where
 
 import Control.Applicative (Alternative(..))
@@ -50,7 +54,7 @@ instance Show a => Show (TokenList a) where
 prop_LexerWorks :: [Token] -> Bool
 prop_LexerWorks tokens =
   let string = show =<< tokens
-  in (lexer string >>= show) == string
+  in (lexer string >>= show . unLocated) == string
 
 instance QuickCheck.Arbitrary Token where
   arbitrary = QuickCheck.arbitraryBoundedEnum
@@ -104,24 +108,39 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty = map (first NonEmpty.fromList)
 
 
-runLexer :: LexTree a -> String -> [a]
+data Located a = Located Int a
+  deriving Show
+
+instance Functor Located where
+  fmap f (Located n x) = Located n (f x)
+
+unLocated :: Located a -> a
+unLocated (Located _ x) = x
+
+type LocatedString = [Located Char]
+
+makeLocatedString :: String -> LocatedString
+makeLocatedString = zipWith Located [ 0 .. ]
+
+
+runLexer :: LexTree a -> LocatedString -> [Located a]
 runLexer tree string = do
   guard $ not $ null string
 
   case runStateT attempt (pure tree, string) of
-    Just (token, (_, string')) -> token : runLexer tree string'
+    Just (token, (_, string')) -> (token <$ head string) : runLexer tree string'
     Nothing -> runLexer tree $ tail string
 
   where
-    attempt :: StateT ([LexTree a], String) Maybe a
+    attempt :: StateT ([LexTree a], LocatedString) Maybe a
     attempt = gets fst >>= \case
       YieldToken token : _ -> pure token
       [] -> empty
       _ -> step
 
     step = gets (second NonEmpty.nonEmpty) >>= \case
-      (trees, Just (c :| cs)) ->
-        put (runLexTree c =<< trees, cs) *> attempt
+      (trees, Just (Located _ c :| cs)) ->
+        put (runLexTree c =<< trees, cs) *> attempt  -- We can eat one character too many here for certain LexTreeS
       (_, Nothing) -> empty
 
     runLexTree c = \case
@@ -142,8 +161,8 @@ lexTree
   $ map (show &&& id)
   $ tokens
 
-lexer :: String -> [Token]
-lexer = runLexer lexTree
+lexer :: String -> [Located Token]
+lexer = runLexer lexTree . makeLocatedString
 
 
 -- Idea For Another Vim Service / Plugin:

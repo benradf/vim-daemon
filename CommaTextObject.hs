@@ -13,6 +13,7 @@ data Token
   | LeftBrace
   | RightBrace
   | Newline
+  | Special String
   deriving Show
 
 lexTree :: LexTree Token
@@ -24,7 +25,18 @@ lexTree = makeLexTree $ Map.fromList
   , ("]", RightBox)
   , ("{", LeftBrace)
   , ("}", RightBrace)
+  , ("=>", Special "=>")
+  , ("<-", Special "<-")
+  , ("->", Special "->")
+  , ("==>", Special "==>")
+  , ("<--", Special "<--")
+  , (":=>", Special ":=>")
   ]
 
-lexer :: String -> [Token]
-lexer = runLexer lexTree
+{- Write a regression test for the following bug:
+    λ runLexer lexTree (makeLocatedString "<-=>")
+    [Located 0 (Special "<-")]
+-}
+
+lexer :: String -> [Located Token]
+lexer = runLexer lexTree . makeLocatedString
