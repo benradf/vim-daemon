@@ -2,7 +2,8 @@
 {-# LANGUAGE TupleSections #-}
 
 module Lex
-  ( Located
+  ( Offset
+  , Located
   , LexTree
   , makeLexTree
   , makeLocatedString
@@ -118,7 +119,9 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty = map (first NonEmpty.fromList)
 
 
-data Located a = Located Int a
+type Offset = Int
+
+data Located a = Located Offset a
   deriving Show
 
 instance Functor Located where
