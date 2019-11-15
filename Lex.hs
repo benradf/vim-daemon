@@ -19,7 +19,7 @@ import Control.Arrow ((&&&))
 import Control.Monad (guard, join, when)
 import Control.Monad.State (State, get, gets, modify, put)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (StateT(..), evalStateT)
+import Control.Monad.Trans.State (StateT(..))
 import Data.Bifunctor (bimap, first, second)
 import Data.Bitraversable (bitraverse)
 import Data.List (groupBy)
@@ -137,29 +137,31 @@ runLexer :: LexTree a -> LocatedString -> [Located a]
 runLexer tree string = do
   guard $ not $ null string
 
-  case evalStateT attempt (pure tree, string) of
-    Just (token, string') ->
+  case runStateT attempt (pure tree, string) of
+    Just (token, (_, string')) ->
       (token <$ head string) : runLexer tree string'
 
     Nothing ->
       runLexer tree $ tail string
 
   where
-    attempt :: StateT ([LexTree a], LocatedString) Maybe (a, LocatedString)
+    attempt :: StateT ([LexTree a], LocatedString) Maybe a
     attempt = gets fst >>= \case
-      YieldToken token : _ -> (token,) <$> gets snd
       [] -> empty
-      -- _ : YieldToken token : _ -> (<|>) <$> step <*> ((token,) <$> gets snd)
-      _ -> step -- <|> empty
+      trees -> step <|> lift (listToMaybe $ mapMaybe fromYield trees)
 
     step = gets (second NonEmpty.nonEmpty) >>= \case
       (trees, Just (Located _ c :| cs)) ->
-        put (runLexTree c =<< trees, cs) *> attempt  -- We can eat one character too many here for certain LexTreeS
+        put (runLexTree c =<< trees, cs) *> attempt
       (_, Nothing) -> empty
 
     runLexTree c = \case
       ConsumeChar f -> f c
-      t@(YieldToken _) -> pure t
+      _ -> []
+
+    fromYield = \case
+      YieldToken t -> Just t
+      _ -> Nothing
 
 
 data Token = Alpha | Beta | Gamma | Delta | Epsilon | X
