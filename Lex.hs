@@ -11,15 +11,15 @@ module Lex
   , unLocated
   ) where
 
-import Control.Applicative (Alternative(..))
+import Control.Applicative (Alternative(..), (<|>))
 import Data.Functor (($>))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Arrow ((&&&))
 import Control.Monad (guard, join, when)
-import Control.Monad.State (State, get, gets, modify, put, runState)
+import Control.Monad.State (State, get, gets, modify, put)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (StateT(..))
+import Control.Monad.Trans.State (StateT(..), evalStateT)
 import Data.Bifunctor (bimap, first, second)
 import Data.Bitraversable (bitraverse)
 import Data.List (groupBy)
@@ -36,7 +36,8 @@ import Data.Tree (Tree(..))
 import qualified Data.Tree as Tree
 
 import qualified Test.Tasty as Tasty
-import qualified Test.Tasty.QuickCheck as Tasty
+import qualified Test.Tasty.HUnit as HUnit
+import qualified Test.Tasty.QuickCheck as QuickCheck
 import qualified Test.QuickCheck as QuickCheck
 
 import Debug.Trace (trace)
@@ -61,10 +62,19 @@ instance QuickCheck.Arbitrary Token where
 
 
 main :: IO ()
-main = Tasty.defaultMain $
-  Tasty.testGroup "Lexer Tests"
-    [ Tasty.testProperty "Lexer Works" prop_LexerWorks
+main = Tasty.defaultMain $ Tasty.testGroup "All Tests"
+  [ Tasty.testGroup "Lexer Tests"
+    [ QuickCheck.testProperty "Lexer Works" prop_LexerWorks
     ]
+
+  , Tasty.testGroup "Regression Tests"
+    [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
+        let string = "<-=>"
+        let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
+        let result = concat $ unLocated <$> runLexer lexTree (makeLocatedString string)
+        HUnit.assertEqual "Lexed correctly" string result
+    ]
+  ]
 
 
 data LexTree a
@@ -127,16 +137,20 @@ runLexer :: LexTree a -> LocatedString -> [Located a]
 runLexer tree string = do
   guard $ not $ null string
 
-  case runStateT attempt (pure tree, string) of
-    Just (token, (_, string')) -> (token <$ head string) : runLexer tree string'
-    Nothing -> runLexer tree $ tail string
+  case evalStateT attempt (pure tree, string) of
+    Just (token, string') ->
+      (token <$ head string) : runLexer tree string'
+
+    Nothing ->
+      runLexer tree $ tail string
 
   where
-    attempt :: StateT ([LexTree a], LocatedString) Maybe a
+    attempt :: StateT ([LexTree a], LocatedString) Maybe (a, LocatedString)
     attempt = gets fst >>= \case
-      YieldToken token : _ -> pure token
+      YieldToken token : _ -> (token,) <$> gets snd
       [] -> empty
-      _ -> step
+      -- _ : YieldToken token : _ -> (<|>) <$> step <*> ((token,) <$> gets snd)
+      _ -> step -- <|> empty
 
     step = gets (second NonEmpty.nonEmpty) >>= \case
       (trees, Just (Located _ c :| cs)) ->
@@ -167,3 +181,8 @@ lexer = runLexer lexTree . makeLocatedString
 
 -- Idea For Another Vim Service / Plugin:
 -- Sorting of comma separated fields within parentheses.
+
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+as <&> f = f <$> as
+
+infixl 1 <&>

@@ -33,6 +33,7 @@ executable vim-server
     QuickCheck,
     semigroups,
     tasty,
+    tasty-hunit,
     tasty-quickcheck,
     text,
     transformers,
