@@ -49,24 +49,17 @@ tests = Tasty.testGroup "module CommaTextObject"
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Mapping string offset to line and column location" $ do
         let fromOffset = offsetToLocation [ "1st line", "line number II", "line #3" ]
-        HUnit.assertEqual "" (Just (Location 1 1)) (fromOffset 0)
-        HUnit.assertEqual "" (Just (Location 1 5)) (fromOffset 4)
-        HUnit.assertEqual "" (Just (Location 1 9)) (fromOffset 8)
-        HUnit.assertEqual "" (Just (Location 2 1)) (fromOffset 9)
-        HUnit.assertEqual "" (Just (Location 2 15)) (fromOffset 23)
-        HUnit.assertEqual "" (Just (Location 3 1)) (fromOffset 24)
-        HUnit.assertEqual "" (Just (Location 3 8)) (fromOffset 31)
+        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 1))) (fromOffset 0)
+        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 5))) (fromOffset 4)
+        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 9))) (fromOffset 8)
+        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 1))) (fromOffset 9)
+        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 15))) (fromOffset 23)
+        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 1))) (fromOffset 24)
+        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 8))) (fromOffset 31)
         HUnit.assertEqual "" Nothing (fromOffset 32)
         HUnit.assertEqual "" Nothing (fromOffset 99)
     ]
   ]
-
-
-data LocalBuffer = LocalBuffer
-  { lbLines :: [String]
-  , lbGetLocation :: Int 
-  }
-
 
 
 offsetToLocation :: [String] -> Offset -> Maybe Location
@@ -74,28 +67,43 @@ offsetToLocation lines offset = do
   let lineIndexPairs = zip [ 0 .. ] $ scanl (\n line -> n + length line + 1) 0 lines
   (lineNumber, lineOffset) <- listToMaybe $ dropWhile ((<= offset) . snd) lineIndexPairs
   pure $ Location
-    { lLine = lineNumber
-    , lColumn = offset - snd (lineIndexPairs !! (lineNumber - 1)) + 1
+    { lLine = LineNumber lineNumber
+    , lColumn = ColumnNumber $ offset - snd (lineIndexPairs !! (lineNumber - 1)) + 1
     }
     
 
 
-makeLocalBuffer :: [String] -> LocalBuffer
-makeLocalBuffer = undefined
+
+data LineBuffer = LineBuffer
+  { lbLines :: [String]
+  , lbSourceRange :: Range LineNumber
+  , lbGetLocation :: Offset -> Maybe Location
+  }
+
+
+makeLineBuffer :: [String] -> LineBuffer
+makeLineBuffer = undefined
 
 
 --indexToLocation :: Integral a => a -> Location
 --indexToLocation n = 
 
+newtype LineNumber = LineNumber Int
+  deriving (Eq, Show)
+
+newtype ColumnNumber = ColumnNumber Int
+  deriving (Eq, Show)
+
+
 data Location = Location
-  { lLine :: Int
-  , lColumn :: Int
+  { lLine :: LineNumber
+  , lColumn :: ColumnNumber
   }
   deriving (Eq, Show)
 
-data Range = Range
-  { rFrom :: Location
-  , rTo :: Location
+data Range a = Range
+  { rFrom :: a
+  , rTo :: a
   }
   deriving (Eq, Show)
 
