@@ -72,6 +72,8 @@ offsetToLocation lines offset = do
     }
     
 
+newtype ReversedString = ReversedString String
+  deriving (Eq, Show)
 
 
 data LineBuffer = LineBuffer

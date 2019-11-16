@@ -77,6 +77,28 @@ tests = Tasty.testGroup "module Lex"
     ]
   ]
 
+{-
+    Consider rewriting LexTree data type to be:
+        data LexTree a
+            = ConsumeChar (Char -> LexTree a)
+            | YieldToken a
+            | NoToken
+    as it originally was.
+    Currently the tree can express ambiguity (such
+    as when distinct tokens are represented by the
+    same string).
+    However the makeLexTree function will never
+    produce a LexTree that exercises this ambiguity
+    because its input type prevents it from receiving
+    distinct tokens with the same string representation.
+
+    Perhaps better still:
+        data LexTree a
+            = LexTree (Maybe (Char -> LexTree a)) (Maybe a)
+
+    The runLexer function could probably be simplified
+    if its LexTree input type was more restricted like this.
+-}
 
 data LexTree a
   = ConsumeChar (Char -> [LexTree a])
