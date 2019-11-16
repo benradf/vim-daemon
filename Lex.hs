@@ -3,7 +3,8 @@
 
 module Lex
   ( Offset
-  , Located
+  , StringStream
+  , Located(..)  -- TODO: Do not export data constructors.
   , LexTree
   , makeLexTree
   , makeLocatedString

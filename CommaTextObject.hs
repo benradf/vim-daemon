@@ -6,6 +6,7 @@ module CommaTextObject where
 import Lex
 import Stream (Stream)
 import qualified Stream as Stream
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
@@ -29,8 +30,8 @@ data Token
   | LineFeed
   deriving Show
 
-lexer :: String -> [Located Token]
-lexer = runIdentity . runLexer lexTree . makeStringStream
+lexer :: Monad m => StringStream m -> m [Located Token]
+lexer = runLexer lexTree
   where
     lexTree :: LexTree Token
     lexTree = makeLexTree $ Map.fromList
@@ -217,18 +218,36 @@ tests = Tasty.testGroup "module CommaTextObject"
 
     , HUnit.testCase "Stream lines before and after cursor" $ do
         let cursor = Location 13 5
-        (streamBefore, streamAfter) <- makeBufferView cursor $ \i j -> pure $ do
-          let (from, to) = (max i 1, max j 0)
-          guard (from <= to)
-          take (to - from + 1) $ drop (from - 1) $ exampleLines
-
+        (streamBefore, streamAfter) <- makeBufferViewFromLines cursor exampleLines
         beforeLines <- Stream.toList streamBefore
         afterLines <- Stream.toList streamAfter
-
         HUnit.assertEqual "" exampleLines ((reverse <$> reverse beforeLines) ++ afterLines)
+
+    , HUnit.testCase "Run lexer on before and after streams" $ do
+        let cursor = Location 13 5
+        (streamBefore, streamAfter) <- makeBufferViewFromLines cursor exampleLines
+        tokens <- lexer (Located 0 <$> Stream.split (NonEmpty.fromList . (++ "\n")) streamBefore)
+        --mapM_ (putStrLn . show) tokens
+        -- TODO: Finish this unit test
+        -- Should probably assert that all the token locations are correct.
+
+        --HUnit.assertEqual "" exampleLines ((reverse <$> reverse beforeLines) ++ afterLines)
+        pure ()
     ]
   ]
 
+-- TODO: Tag lines and chars with correct Located Location.
+makeBufferViewFromLines
+  :: MonadIO m
+  => Location
+  -> [String]
+  -> m (Stream m Line, Stream m Line)
+
+makeBufferViewFromLines cursor lines =
+  makeBufferView cursor $ \i j -> pure $ do
+    let (from, to) = (max i 1, max j 0)
+    guard (from <= to)
+    take (to - from + 1) $ drop (from - 1) lines
 
 exampleLines :: [String]
 exampleLines =
