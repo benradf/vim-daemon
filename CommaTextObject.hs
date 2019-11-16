@@ -10,10 +10,11 @@ import qualified Data.Map as Map
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
+import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
-import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 import Data.Maybe (Maybe(..), listToMaybe)
 import Data.Functor.Identity (Identity(..))
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 
 
 data Token
@@ -50,9 +51,8 @@ offsetToLocation lines offset = do
   let lineIndexPairs = zip [ 0 .. ] $ scanl (\n line -> n + length line + 1) 0 lines
   (lineNumber, lineOffset) <- listToMaybe $ dropWhile ((<= offset) . snd) lineIndexPairs
   pure $ Location
-    { lLine = LineNumber lineNumber
-    , lColumn = ColumnNumber $ offset - snd (lineIndexPairs !! (lineNumber - 1)) + 1
-    }
+    (lineNumber)
+    (offset - snd (lineIndexPairs !! (lineNumber - 1)) + 1)
     
 
 newtype ReversedString = ReversedString String
@@ -74,18 +74,17 @@ makeLineBuffer = undefined
 --indexToLocation n = 
 
 
-newtype LineNumber = LineNumber Int
-  deriving (Eq, Num, Show)
+type LineNumber = Int
+--newtype LineNumber = LineNumber Int
+--  deriving (Eq, Num, Show)
 
-newtype ColumnNumber = ColumnNumber Int
-  deriving (Eq, Num, Show)
+type ColumnNumber = Int
+--newtype ColumnNumber = ColumnNumber Int
+--  deriving (Eq, Num, Show)
 
-
-data Location = Location
-  { lLine :: LineNumber
-  , lColumn :: ColumnNumber
-  }
+data Location = Location LineNumber ColumnNumber
   deriving (Eq, Show)
+
 
 data Range a = Range
   { rFrom :: a
@@ -106,36 +105,42 @@ data Range a = Range
 type Line = String
 
 makeBufferView
-  :: (LineNumber -> LineNumber -> m [Line])
-  -> Location
-  -> IO (Stream m Line, Stream m Line)
+  :: MonadIO m
+  => Location
+  -> (LineNumber -> LineNumber -> m [Line])
+  -> m (Stream m Line, Stream m Line)
 
-makeBufferView getLines cursor = do
-  let lineNum = lLine cursor
-  mvar <- liftIO $ newMVar (lineNum - 1, lineNum)
+makeBufferView cursor@(Location line column) getLines = do
 
-  nextAfter <- liftIO $ newMVar lineNum
-  nextBefore <- liftIO $ newMVar (lineNum - 1)
+  nextAfter <- liftIO $ newIORef $ line
+  nextBefore <- liftIO $ newIORef $ line - 1
 
+  let
+    getAfter = do
+      n <- liftIO $ readIORef nextAfter
+      lines <- getLines n (n + chunkSize - 1)
+      liftIO $ writeIORef nextAfter $ n + length lines
+      pure lines
 
--- modifyMVar :: MVar a -> (a -> IO (a, b)) -> IO b
-
-  let {-getAfter = do
-        n <- snd <$> liftIO (readIORef ref)
-        getLines n (n + 4)
-        undefined-}
-
-
-      -- NOTE: Cannot use modifyMVar because can't unliftIO the Monad m
-      getAfter = liftIO $ modifyMVar nextAfter $ \n ->
-        (n + 5,) <$> getLines n (n + 4)
-
-      getBefore = do
-        undefined
+    getBefore = do
+      n <- liftIO $ readIORef nextBefore
+      lines <- getLines (n - chunkSize + 1) n
+      liftIO $ writeIORef nextBefore $ n - length lines
+      pure $ reverse $ reverse <$> lines
 
   (,)
     <$> Stream.fromAction getBefore
     <*> Stream.fromAction getAfter
+
+  where
+    chunkSize = 5
+
+{-
+    λ :t join $ join bitraverse Stream.toList <$> makeBufferView (\_ _ -> pure []) (Location 1 1)
+    join $ join bitraverse Stream.toList <$> makeBufferView (\_ _ -> pure []) (Location 1 1)
+      :: MonadIO m => m ([Line], [Line])
+-}
+
 
 
 data BufferView m = BufferView
@@ -200,14 +205,63 @@ tests = Tasty.testGroup "module CommaTextObject"
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Mapping string offset to line and column location" $ do
         let fromOffset = offsetToLocation [ "1st line", "line number II", "line #3" ]
-        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 1))) (fromOffset 0)
-        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 5))) (fromOffset 4)
-        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 9))) (fromOffset 8)
-        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 1))) (fromOffset 9)
-        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 15))) (fromOffset 23)
-        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 1))) (fromOffset 24)
-        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 8))) (fromOffset 31)
+        HUnit.assertEqual "" (Just (Location 1 1)) (fromOffset 0)
+        HUnit.assertEqual "" (Just (Location 1 5)) (fromOffset 4)
+        HUnit.assertEqual "" (Just (Location 1 9)) (fromOffset 8)
+        HUnit.assertEqual "" (Just (Location 2 1)) (fromOffset 9)
+        HUnit.assertEqual "" (Just (Location 2 15)) (fromOffset 23)
+        HUnit.assertEqual "" (Just (Location 3 1)) (fromOffset 24)
+        HUnit.assertEqual "" (Just (Location 3 8)) (fromOffset 31)
         HUnit.assertEqual "" Nothing (fromOffset 32)
         HUnit.assertEqual "" Nothing (fromOffset 99)
+
+    , HUnit.testCase "Stream lines before and after cursor" $ do
+        let cursor = Location 13 5
+        (streamBefore, streamAfter) <- makeBufferView cursor $ \i j -> pure $ do
+          let (from, to) = (max i 1, max j 0)
+          guard (from <= to)
+          take (to - from + 1) $ drop (from - 1) $ exampleLines
+
+        beforeLines <- Stream.toList streamBefore
+        afterLines <- Stream.toList streamAfter
+
+        HUnit.assertEqual "" exampleLines ((reverse <$> reverse beforeLines) ++ afterLines)
     ]
   ]
+
+
+exampleLines :: [String]
+exampleLines =
+  [ "{-  1 -} makeBufferView"
+  , "{-  2 -}   :: MonadIO m"
+  , "{-  3 -}   => (LineNumber -> LineNumber -> m [Line])"
+  , "{-  4 -}   -> Location"
+  , "{-  5 -}   -> m (Stream m Line, Stream m Line)"
+  , "{-  6 -} "
+  , "{-  7 -} makeBufferView getLines cursor@(Location line column) = do"
+  , "{-  8 -} "
+  , "{-  9 -}   nextAfter <- liftIO $ newIORef $ line + 1"
+  , "{- 10 -}   nextBefore <- liftIO $ newIORef $ line - 1"
+  , "{- 11 -} "
+  , "{- 12 -}   let"
+  , "{- 13 -}     getAfter = do"
+  , "{- 14 -}       n <- liftIO $ readIORef nextAfter"
+  , "{- 15 -}       lines <- getLines n (n + chunkSize - 1)"
+  , "{- 16 -}       liftIO $ writeIORef nextAfter $ n + length lines"
+  , "{- 17 -}       pure lines"
+  , "{- 18 -} "
+  , "{- 19 -}     getBefore = do"
+  , "{- 20 -}       n <- liftIO $ readIORef nextBefore"
+  , "{- 21 -}       lines <- getLines (n - chunkSize + 1) n"
+  , "{- 22 -}       liftIO $ writeIORef nextBefore $ n - length lines"
+  , "{- 23 -}       pure lines"
+  , "{- 24 -} "
+  , "{- 25 -}   (,)"
+  , "{- 26 -}     <$> Stream.fromAction getBefore"
+  , "{- 27 -}     <*> Stream.fromAction getAfter"
+  , "{- 28 -} "
+  , "{- 29 -}   where"
+  , "{- 30 -}     chunkSize = 5"
+  ]
+
+
