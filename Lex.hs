@@ -54,37 +54,6 @@ import Stream (Stream(..))
 import qualified Stream as Stream
 
 
-newtype TokenList a = TokenList
-  { unTokenString :: [a]
-  }
-
-instance Show a => Show (TokenList a) where
-  show (TokenList ts) = ts >>= show
-
-prop_LexerWorks :: [Token] -> Bool
-prop_LexerWorks tokens =
-  let string = show =<< tokens
-  in (lexer string >>= show . unLocated) == string
-
-instance QuickCheck.Arbitrary Token where
-  arbitrary = QuickCheck.arbitraryBoundedEnum
-
-
-tests :: Tasty.TestTree
-tests = Tasty.testGroup "module Lex"
-  [ Tasty.testGroup "QuickCheck"
-    [ QuickCheck.testProperty "Lexer Works" prop_LexerWorks
-    ]
-
-  , Tasty.testGroup "Regression"
-    [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
-        let string = "<-=>"
-        let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
-        let result = concat $ unLocated <$> runIdentity (runLexer lexTree (makeStringStream string))
-        HUnit.assertEqual "Lexed correctly" string result
-    ]
-  ]
-
 {-
     Consider rewriting LexTree data type to be:
         data LexTree a
@@ -227,7 +196,42 @@ lexer = runIdentity . runLexer lexTree . makeStringStream
 -- Idea For Another Vim Service / Plugin:
 -- Sorting of comma separated fields within parentheses.
 
+newtype TokenList a = TokenList
+  { unTokenString :: [a]
+  }
+
+instance Show a => Show (TokenList a) where
+  show (TokenList ts) = ts >>= show
+
+prop_StringWithOnlyTokensLexedCorrectly :: [Token] -> Bool
+prop_StringWithOnlyTokensLexedCorrectly tokens =
+  let string = show =<< tokens
+  in (lexer string >>= show . unLocated) == string
+
+instance QuickCheck.Arbitrary Token where
+  arbitrary = QuickCheck.arbitraryBoundedEnum
+
+
+tests :: Tasty.TestTree
+tests = Tasty.testGroup "module Lex"
+  [ Tasty.testGroup "QuickCheck"
+    [ QuickCheck.testProperty
+        "String with only tokens is lexed correctly"
+        prop_StringWithOnlyTokensLexedCorrectly
+    ]
+
+  , Tasty.testGroup "Regression"
+    [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
+        let string = "<-=>"
+        let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
+        let result = concat $ unLocated <$> runIdentity (runLexer lexTree (makeStringStream string))
+        HUnit.assertEqual "Lexed correctly" string result
+    ]
+
+  , Tasty.testGroup "Unit" [ ]
+  ]
+
+
 (<&>) :: Functor f => f a -> (a -> b) -> f b
 as <&> f = f <$> as
-
 infixl 1 <&>

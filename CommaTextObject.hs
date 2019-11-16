@@ -37,31 +37,6 @@ lexer = runIdentity . runLexer lexTree . makeStringStream
       , ("\n", LineFeed)
       ]
 
-tests :: Tasty.TestTree
-tests = Tasty.testGroup "module CommaTextObject"
-  [ Tasty.testGroup "QuickCheck"
-    [ --QuickCheck.testProperty "Lexer Works" prop_LexerWorks
-    ]
-
-  , Tasty.testGroup "Regression"
-    [ -- HUnit.testCase "Extra character consumed when one token is a prefix of another" $ pure ()
-    ]
-
-  , Tasty.testGroup "Unit"
-    [ HUnit.testCase "Mapping string offset to line and column location" $ do
-        let fromOffset = offsetToLocation [ "1st line", "line number II", "line #3" ]
-        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 1))) (fromOffset 0)
-        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 5))) (fromOffset 4)
-        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 9))) (fromOffset 8)
-        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 1))) (fromOffset 9)
-        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 15))) (fromOffset 23)
-        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 1))) (fromOffset 24)
-        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 8))) (fromOffset 31)
-        HUnit.assertEqual "" Nothing (fromOffset 32)
-        HUnit.assertEqual "" Nothing (fromOffset 99)
-    ]
-  ]
-
 
 offsetToLocation :: [String] -> Offset -> Maybe Location
 offsetToLocation lines offset = do
@@ -163,3 +138,24 @@ extendUp (Selection _ Root) = Nothing
 extendUp (Selection nodes (Context ls c rs)) =
   Just $ Selection (reverse ls ++ nodes ++ rs) c
 -}
+
+
+tests :: Tasty.TestTree
+tests = Tasty.testGroup "module CommaTextObject"
+  [ Tasty.testGroup "QuickCheck" [ ]
+  , Tasty.testGroup "Regression" [ ]
+
+  , Tasty.testGroup "Unit"
+    [ HUnit.testCase "Mapping string offset to line and column location" $ do
+        let fromOffset = offsetToLocation [ "1st line", "line number II", "line #3" ]
+        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 1))) (fromOffset 0)
+        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 5))) (fromOffset 4)
+        HUnit.assertEqual "" (Just (Location (LineNumber 1) (ColumnNumber 9))) (fromOffset 8)
+        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 1))) (fromOffset 9)
+        HUnit.assertEqual "" (Just (Location (LineNumber 2) (ColumnNumber 15))) (fromOffset 23)
+        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 1))) (fromOffset 24)
+        HUnit.assertEqual "" (Just (Location (LineNumber 3) (ColumnNumber 8))) (fromOffset 31)
+        HUnit.assertEqual "" Nothing (fromOffset 32)
+        HUnit.assertEqual "" Nothing (fromOffset 99)
+    ]
+  ]
