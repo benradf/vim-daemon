@@ -27,6 +27,7 @@ executable vim-server
     base >=4.10 && <4.13,
     bytestring,
     containers,
+    errors,
     free,
     aeson,
     mtl,

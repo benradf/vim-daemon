@@ -7,12 +7,14 @@ module Lex
   , LexTree
   , makeLexTree
   , makeLocatedString
+  , makeStringStream
   , runLexer
   , tests
   , unLocated
   ) where
 
 import Control.Applicative (Alternative(..), (<|>))
+import Control.Error.Util (hoistMaybe)
 import Data.Functor (($>))
 import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
@@ -21,6 +23,7 @@ import Control.Arrow ((&&&))
 import Control.Monad (guard, join, when)
 import Control.Monad.State (State, get, gets, modify, put)
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (StateT(..))
 import Data.Bifunctor (bimap, first, second)
 import Data.Bitraversable (bitraverse)
@@ -76,7 +79,7 @@ tests = Tasty.testGroup "module Lex"
     [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
         let string = "<-=>"
         let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
-        let result = concat $ unLocated <$> runLexer lexTree (makeLocatedString string)
+        let result = concat $ unLocated <$> runIdentity (runLexer lexTree (makeStringStream string))
         HUnit.assertEqual "Lexed correctly" string result
     ]
   ]
@@ -163,26 +166,32 @@ makeLocatedString = zipWith Located [ 0 .. ]
 
 type StringStream m = Stream m (Located Char)
 
+makeStringStream :: String -> StringStream Identity
+makeStringStream = Stream.fromList . makeLocatedString
 
-runLexer :: LexTree a -> LocatedString -> [Located a]
-runLexer tree string = do
-  guard $ not $ null string
 
-  case runStateT attempt (pure tree, string) of
-    Just (token, (_, string')) ->
-      (token <$ head string) : runLexer tree string'
+runLexer :: Monad m => LexTree a -> StringStream m -> m [Located a]
+runLexer tree stream =
+  Stream.extract stream >>= \case
+    Nothing -> pure []
 
-    Nothing ->
-      runLexer tree $ tail string
+    Just (char, stream') ->
+      runMaybeT (runStateT attempt (pure tree, stream)) >>= \case
+        Just (token, (_, stream')) ->
+          ((token <$ char) :) <$> runLexer tree stream'
+
+        Nothing ->
+          runLexer tree stream'
 
   where
-    attempt :: StateT ([LexTree a], LocatedString) Maybe a
+    attempt :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
     attempt = gets fst >>= \case
       [] -> empty
-      trees -> step <|> lift (listToMaybe $ mapMaybe fromYield trees)
+      trees -> step <|> lift (hoistMaybe $ listToMaybe $ mapMaybe fromYield trees)
 
-    step = gets (second NonEmpty.nonEmpty) >>= \case
-      (trees, Just (Located _ c :| cs)) ->
+    step :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
+    step = (join $ gets $ lift . lift . traverse Stream.extract) >>= \case
+      (trees, Just (Located _ c, cs)) ->
         put (runLexTree c =<< trees, cs) *> attempt
       (_, Nothing) -> empty
 
@@ -209,7 +218,7 @@ lexTree
   $ tokens
 
 lexer :: String -> [Located Token]
-lexer = runLexer lexTree . makeLocatedString
+lexer = runIdentity . runLexer lexTree . makeStringStream
 
 
 -- Idea For Another Vim Service / Plugin:

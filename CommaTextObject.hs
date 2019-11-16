@@ -6,6 +6,7 @@ import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
 import Data.Maybe (Maybe(..), listToMaybe)
+import Data.Functor.Identity (Identity(..))
 
 
 data Token
@@ -21,7 +22,7 @@ data Token
   deriving Show
 
 lexer :: String -> [Located Token]
-lexer = runLexer lexTree . makeLocatedString
+lexer = runIdentity . runLexer lexTree . makeStringStream
   where
     lexTree :: LexTree Token
     lexTree = makeLexTree $ Map.fromList
