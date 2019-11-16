@@ -14,6 +14,7 @@ module Lex
 
 import Control.Applicative (Alternative(..), (<|>))
 import Data.Functor (($>))
+import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Arrow ((&&&))
@@ -44,6 +45,9 @@ import qualified Test.QuickCheck as QuickCheck
 import Debug.Trace (trace)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Tree.Pretty as Pretty
+
+import Stream (Stream(..))
+import qualified Stream as Stream
 
 
 newtype TokenList a = TokenList
@@ -156,6 +160,8 @@ type LocatedString = [Located Char]
 
 makeLocatedString :: String -> LocatedString
 makeLocatedString = zipWith Located [ 0 .. ]
+
+type StringStream m = Stream m (Located Char)
 
 
 runLexer :: LexTree a -> LocatedString -> [Located a]

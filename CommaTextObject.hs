@@ -76,14 +76,14 @@ newtype ReversedString = ReversedString String
   deriving (Eq, Show)
 
 
-data LineBuffer = LineBuffer
+data LineBuffer2 = LineBuffer2
   { lbLines :: [String]
   , lbSourceRange :: Range LineNumber
   , lbGetLocation :: Offset -> Maybe Location
   }
 
 
-makeLineBuffer :: [String] -> LineBuffer
+makeLineBuffer :: [String] -> LineBuffer2
 makeLineBuffer = undefined
 
 
@@ -108,6 +108,24 @@ data Range a = Range
   , rTo :: a
   }
   deriving (Eq, Show)
+
+
+
+data BufOp
+
+
+data LineBuffer = LineBuffer 
+
+
+
+data Selection a
+  = Selection [a] (Context a)
+
+data Context a
+  = NoContext
+  | Context [a] (Context a) [a]
+
+
 
 --   ( x -> ( a -> b ) -> c -> ( d -> e -> f ) )
 

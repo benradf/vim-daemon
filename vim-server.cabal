@@ -20,7 +20,8 @@ executable vim-server
   main-is:       Main.hs
   other-modules:
     CommaTextObject,
-    Lex
+    Lex,
+    Stream
   -- other-extensions:
   build-depends:
     base >=4.10 && <4.13,
@@ -36,6 +37,7 @@ executable vim-server
     tasty-hunit,
     tasty-quickcheck,
     text,
+    text-zipper,
     transformers,
     vector
   -- hs-source-dirs:
