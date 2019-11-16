@@ -15,6 +15,7 @@ module Lex
 
 import Control.Applicative (Alternative(..), (<|>))
 import Control.Error.Util (hoistMaybe)
+import Control.Monad.State.Class (MonadState(..))
 import Data.Functor (($>))
 import Data.Functor.Identity (Identity(..))
 import Data.Map (Map)
@@ -187,7 +188,7 @@ runLexer tree stream =
     attempt :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
     attempt = gets fst >>= \case
       [] -> empty
-      trees -> step <|> lift (hoistMaybe $ listToMaybe $ mapMaybe fromYield trees)
+      trees -> step <|> yielded trees
 
     step :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
     step = (join $ gets $ lift . lift . traverse Stream.extract) >>= \case
@@ -195,13 +196,15 @@ runLexer tree stream =
         put (runLexTree c =<< trees, cs) *> attempt
       (_, Nothing) -> empty
 
+    yielded trees = lift
+      $ hoistMaybe $ listToMaybe
+      $ flip mapMaybe trees $ \case
+        YieldToken t -> Just t
+        _ -> Nothing
+
     runLexTree c = \case
       ConsumeChar f -> f c
       _ -> []
-
-    fromYield = \case
-      YieldToken t -> Just t
-      _ -> Nothing
 
 
 data Token = Alpha | Beta | Gamma | Delta | Epsilon | X
