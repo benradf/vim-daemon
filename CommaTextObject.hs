@@ -1,10 +1,17 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TupleSections #-}
+
 module CommaTextObject where
 
 import Lex
+import Stream (Stream)
+import qualified Stream as Stream
 import qualified Data.Map as Map
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
 import Data.Maybe (Maybe(..), listToMaybe)
 import Data.Functor.Identity (Identity(..))
 
@@ -66,11 +73,12 @@ makeLineBuffer = undefined
 --indexToLocation :: Integral a => a -> Location
 --indexToLocation n = 
 
+
 newtype LineNumber = LineNumber Int
-  deriving (Eq, Show)
+  deriving (Eq, Num, Show)
 
 newtype ColumnNumber = ColumnNumber Int
-  deriving (Eq, Show)
+  deriving (Eq, Num, Show)
 
 
 data Location = Location
@@ -87,19 +95,63 @@ data Range a = Range
 
 
 
-data BufOp
-
-
-data LineBuffer = LineBuffer 
+--data BufOp
 
 
 
-data Selection a
-  = Selection [a] (Context a)
+--data Selection m a
+--  = Selection (Stream m a) [a] (Stream m a)
 
-data Context a
-  = NoContext
-  | Context [a] (Context a) [a]
+
+type Line = String
+
+makeBufferView
+  :: (LineNumber -> LineNumber -> m [Line])
+  -> Location
+  -> IO (Stream m Line, Stream m Line)
+
+makeBufferView getLines cursor = do
+  let lineNum = lLine cursor
+  mvar <- liftIO $ newMVar (lineNum - 1, lineNum)
+
+  nextAfter <- liftIO $ newMVar lineNum
+  nextBefore <- liftIO $ newMVar (lineNum - 1)
+
+
+-- modifyMVar :: MVar a -> (a -> IO (a, b)) -> IO b
+
+  let {-getAfter = do
+        n <- snd <$> liftIO (readIORef ref)
+        getLines n (n + 4)
+        undefined-}
+
+
+      -- NOTE: Cannot use modifyMVar because can't unliftIO the Monad m
+      getAfter = liftIO $ modifyMVar nextAfter $ \n ->
+        (n + 5,) <$> getLines n (n + 4)
+
+      getBefore = do
+        undefined
+
+  (,)
+    <$> Stream.fromAction getBefore
+    <*> Stream.fromAction getAfter
+
+
+data BufferView m = BufferView
+  { bvLineCount :: Int
+  , bvCursor :: Location
+  , bvLinesBefore :: Stream m String
+  , bvLinesAfter :: Stream m String
+  }
+
+
+--data Selection a
+--  = Selection [a] (Context a)
+--
+--data Context a
+--  = NoContext
+--  | Context [a] (Context a) [a]
 
 
 

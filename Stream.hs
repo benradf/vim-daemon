@@ -4,8 +4,10 @@
 module Stream
   ( Stream
   , extract
+  , fromAction
   , fromList
   , peek
+  , prepend
   , split
   , tests
   , toList
@@ -58,6 +60,9 @@ peek = \case
   Stream x _ -> pure $ Just x
   EndOfStream -> pure Nothing
 
+prepend :: Applicative m => a -> Stream m a -> Stream m a
+prepend x xs = Stream x (pure xs)
+
 fromList :: Applicative m => [a] -> Stream m a
 fromList = \case
   x : xs -> Stream x (pure $ fromList xs)
@@ -75,8 +80,10 @@ split f = \case
     in Stream y $ (fromList ys <>) . split f <$> xs
   EndOfStream -> mempty
 
-
-data LineBuffer
+fromAction :: Monad m => m [a] -> m (Stream m a)
+fromAction action = action >>= \case
+  [] -> pure EndOfStream
+  elems -> (fromList elems <>) <$> fromAction action
 
 
 prop_SplitWithNewlineIsUnlines :: [String] -> Bool
