@@ -16,7 +16,10 @@ import qualified Stream as Stream
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Bifunctor (Bifunctor(..))
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import qualified Data.Vector as Vector
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (Maybe(..), listToMaybe)
 
@@ -55,8 +58,8 @@ type Line = String
 
 data BufferView m = BufferView
   { bvBefore :: Stream m Char
-  , bvWindow :: [Char]
   , bvAfter :: Stream m Char
+-- TODO: Add a function to request cached lines to BufferView.
   }
 
 
@@ -68,30 +71,33 @@ makeBufferView
 
 makeBufferView cursor@(Location line column) getLines = do
 
+  cache <- liftIO $ newIORef $ IntMap.empty
+
   let toCharStream = Stream.split $ NonEmpty.fromList . (++ "\n")
-  (before, after) <- join bimap toCharStream <$> makeStreamPair line getLines
+  (before, after) <- join bimap toCharStream <$> makeStreamPair line (getLinesViaCache cache)
 
   pure $ BufferView
     { bvBefore = before
-    , bvWindow = []
     , bvAfter = after
     }
 
-extendLeft :: Monad m => BufferView m -> m (Maybe (Char, BufferView m))
-extendLeft BufferView{..} =
-  Stream.extract bvBefore >>= \case
-    Just (c, cs) -> pure $ Just $ (c,) $ BufferView
-      { bvBefore = cs
-      , bvWindow = c : bvWindow
-      , bvAfter = bvAfter
-      }
-    Nothing -> pure Nothing
+  where
+    getLinesViaCache cache from to = do
+      cached <- lookupRange from to <$> liftIO (readIORef cache)
 
+      if length cached == from - to + 1
+        then pure cached
+        else do
+          lines <- getLines from to
+          liftIO $ modifyIORef cache $ addLinesToCache from lines
+          pure lines
 
+    lookupRange from to map =
+      IntMap.elems $ fst $ IntMap.split (to + 1) $ snd $ IntMap.split from $ map
 
--- TODO: Make `getRange` cache everything. Then keeping characters extracted
--- from the stream is unnecessary. Once the initial lexing has finished we
--- can re-request any needed ranges from the cache.
+    addLinesToCache from lines map =
+      IntMap.fromAscList (zip [ from .. ] lines) `IntMap.union` map
+
 
 makeStreamPair
   :: MonadIO m
