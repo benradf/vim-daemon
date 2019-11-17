@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
+
 module BufferView
   ( Location(..)
   , exampleLines
@@ -13,6 +16,7 @@ import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Bifunctor (Bifunctor(..))
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (Maybe(..), listToMaybe)
 
 import qualified Test.Tasty as Tasty
@@ -53,6 +57,34 @@ data BufferView m = BufferView
   , bvWindow :: [Char]
   , bvAfter :: Stream m Char
   }
+
+
+makeBufferView
+  :: MonadIO m
+  => Location
+  -> (LineNumber -> LineNumber -> m [Line])
+  -> m (BufferView m)
+
+makeBufferView cursor@(Location line column) getLines = do
+
+  let toCharStream = Stream.split $ NonEmpty.fromList . (++ "\n")
+  (before, after) <- join bimap toCharStream <$> makeStreamPair line getLines
+
+  pure $ BufferView
+    { bvBefore = before
+    , bvWindow = []
+    , bvAfter = after
+    }
+
+extendLeft :: Monad m => BufferView m -> m (BufferView m)
+extendLeft BufferView{..} =
+  Stream.extract bvBefore >>= \case
+    Nothing -> pure $ BufferView{..}  -- TODO: Should we surface failure to move left here?
+    Just (c, cs) -> pure $ BufferView
+      { bvBefore = cs
+      , bvWindow = c : bvWindow
+      , bvAfter = bvAfter
+      }
 
 
 
