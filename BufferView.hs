@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 module BufferView
   ( Location(..)
@@ -76,17 +77,21 @@ makeBufferView cursor@(Location line column) getLines = do
     , bvAfter = after
     }
 
-extendLeft :: Monad m => BufferView m -> m (BufferView m)
+extendLeft :: Monad m => BufferView m -> m (Maybe (Char, BufferView m))
 extendLeft BufferView{..} =
   Stream.extract bvBefore >>= \case
-    Nothing -> pure $ BufferView{..}  -- TODO: Should we surface failure to move left here?
-    Just (c, cs) -> pure $ BufferView
+    Just (c, cs) -> pure $ Just $ (c,) $ BufferView
       { bvBefore = cs
       , bvWindow = c : bvWindow
       , bvAfter = bvAfter
       }
+    Nothing -> pure Nothing
 
 
+
+-- TODO: Make `getRange` cache everything. Then keeping characters extracted
+-- from the stream is unnecessary. Once the initial lexing has finished we
+-- can re-request any needed ranges from the cache.
 
 makeStreamPair
   :: MonadIO m
