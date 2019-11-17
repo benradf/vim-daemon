@@ -3,7 +3,7 @@
 
 module CommaTextObject where
 
-import BufferView (Location(..), exampleLines, makeBufferViewFromLines)
+import BufferView (Location(..), exampleLines, makeStreamPairFromLines)
 import Lex
 import Stream (Stream)
 import qualified Stream as Stream
@@ -54,8 +54,7 @@ tests = Tasty.testGroup "module CommaTextObject"
 
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
-        let cursor = Location 13 5
-        (streamBefore, streamAfter) <- makeBufferViewFromLines cursor exampleLines
+        (streamBefore, streamAfter) <- makeStreamPairFromLines 13 exampleLines
         tokens <- lexer (Located 0 <$> Stream.split (NonEmpty.fromList . (++ "\n")) streamBefore)
         --mapM_ (putStrLn . show) tokens
         -- TODO: Finish this unit test

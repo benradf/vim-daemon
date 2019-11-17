@@ -1,8 +1,8 @@
 module BufferView
   ( Location(..)
   , exampleLines
-  , makeBufferView
-  , makeBufferViewFromLines
+  , makeStreamPair
+  , makeStreamPairFromLines
   , tests
   ) where
 
@@ -49,35 +49,36 @@ type Line = String
 
 
 data BufferView m = BufferView
-  { bvWindow :: [Char]
-  , bvBefore :: Stream m Char
+  { bvBefore :: Stream m Char
+  , bvWindow :: [Char]
   , bvAfter :: Stream m Char
   }
 
 
-makeBufferView
+
+makeStreamPair
   :: MonadIO m
-  => Location
-  -> (LineNumber -> LineNumber -> m [Line])
-  -> m (Stream m Line, Stream m Line)
+  => Int
+  -> (Int -> Int -> m [a])
+  -> m (Stream m a, Stream m a)
 
-makeBufferView cursor@(Location line column) getLines = do
+makeStreamPair index getRange = do
 
-  nextAfter <- liftIO $ newIORef $ line
-  nextBefore <- liftIO $ newIORef $ line - 1
+  nextAfter <- liftIO $ newIORef $ index
+  nextBefore <- liftIO $ newIORef $ index - 1
 
   let
     getAfter = do
       n <- liftIO $ readIORef nextAfter
-      lines <- getLines n (n + chunkSize - 1)
-      liftIO $ writeIORef nextAfter $ n + length lines
-      pure lines
+      elems <- getRange n (n + chunkSize - 1)
+      liftIO $ writeIORef nextAfter $ n + length elems
+      pure elems
 
     getBefore = do
       n <- liftIO $ readIORef nextBefore
-      lines <- getLines (n - chunkSize + 1) n
-      liftIO $ writeIORef nextBefore $ n - length lines
-      pure $ reverse $ reverse <$> lines
+      elems <- getRange (n - chunkSize + 1) n
+      liftIO $ writeIORef nextBefore $ n - length elems
+      pure $ reverse elems
 
   (,)
     <$> Stream.fromAction getBefore
@@ -118,37 +119,36 @@ tests = Tasty.testGroup "module BufferView"
         HUnit.assertEqual "" Nothing (fromOffset 99)
 
     , HUnit.testCase "Stream lines before and after cursor" $ do
-        let cursor = Location 13 5
-        (streamBefore, streamAfter) <- makeBufferViewFromLines cursor exampleLines
+        (streamBefore, streamAfter) <- makeStreamPairFromLines 13 exampleLines
         beforeLines <- Stream.toList streamBefore
         afterLines <- Stream.toList streamAfter
-        HUnit.assertEqual "" exampleLines ((reverse <$> reverse beforeLines) ++ afterLines)
+        HUnit.assertEqual "" exampleLines ((reverse beforeLines) ++ afterLines)
     ]
   ]
 
 
 -- TODO: Tag lines and chars with correct Located Location.
-makeBufferViewFromLines
+makeStreamPairFromLines
   :: MonadIO m
-  => Location
+  => Int
   -> [String]
   -> m (Stream m Line, Stream m Line)
 
-makeBufferViewFromLines cursor lines =
-  makeBufferView cursor $ \i j -> pure $ do
+makeStreamPairFromLines lineNum lines =
+  makeStreamPair lineNum $ \i j -> pure $ do
     let (from, to) = (max i 1, max j 0)
     guard (from <= to)
     take (to - from + 1) $ drop (from - 1) lines
 
 exampleLines :: [String]
 exampleLines =
-  [ "{-  1 -} makeBufferView"
+  [ "{-  1 -} makeStreamPair"
   , "{-  2 -}   :: MonadIO m"
   , "{-  3 -}   => (LineNumber -> LineNumber -> m [Line])"
   , "{-  4 -}   -> Location"
   , "{-  5 -}   -> m (Stream m Line, Stream m Line)"
   , "{-  6 -} "
-  , "{-  7 -} makeBufferView getLines cursor@(Location line column) = do"
+  , "{-  7 -} makeStreamPair getLines cursor@(Location line column) = do"
   , "{-  8 -} "
   , "{-  9 -}   nextAfter <- liftIO $ newIORef $ line + 1"
   , "{- 10 -}   nextBefore <- liftIO $ newIORef $ line - 1"
@@ -241,7 +241,7 @@ extendUp (Selection nodes (Context ls c rs)) =
 
 
 {-
-    λ :t join $ join bitraverse Stream.toList <$> makeBufferView (\_ _ -> pure []) (Location 1 1)
-    join $ join bitraverse Stream.toList <$> makeBufferView (\_ _ -> pure []) (Location 1 1)
+    λ :t join $ join bitraverse Stream.toList <$> makeStreamPair (\_ _ -> pure []) (Location 1 1)
+    join $ join bitraverse Stream.toList <$> makeStreamPair (\_ _ -> pure []) (Location 1 1)
       :: MonadIO m => m ([Line], [Line])
 -}
