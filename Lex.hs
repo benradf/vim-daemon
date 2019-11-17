@@ -2,8 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 
 module Lex
-  ( Offset
-  , StringStream
+  ( StringStream
   , Located(..)  -- TODO: Do not export data constructors.
   , LexTree
   , makeLexTree
@@ -51,6 +50,7 @@ import Debug.Trace (trace)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Tree.Pretty as Pretty
 
+import Location (Located(..), makeLocatedString, unLocated)
 import Stream (Stream(..))
 import qualified Stream as Stream
 
@@ -118,22 +118,6 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty :: [(String, a)] -> [(NonEmpty Char, a)]
     coerceNonEmpty = map (first NonEmpty.fromList)
 
-
-type Offset = Int
-
-data Located a = Located Offset a
-  deriving Show
-
-instance Functor Located where
-  fmap f (Located n x) = Located n (f x)
-
-unLocated :: Located a -> a
-unLocated (Located _ x) = x
-
-type LocatedString = [Located Char]
-
-makeLocatedString :: String -> LocatedString
-makeLocatedString = zipWith Located [ 0 .. ]
 
 type StringStream m = Stream m (Located Char)
 

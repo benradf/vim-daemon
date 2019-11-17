@@ -44,6 +44,7 @@ import qualified Test.Tasty as Tasty
 import qualified CommaTextObject as CommaTextObject
 import qualified BufferView as BufferView
 import qualified Lex as Lex
+import qualified Location as Location
 import qualified Stream as Stream
 
 
@@ -201,6 +202,7 @@ main = do
     [ BufferView.tests
     , CommaTextObject.tests
     , Lex.tests
+    , Location.tests
     , Stream.tests
     ]
 

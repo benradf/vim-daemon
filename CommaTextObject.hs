@@ -3,7 +3,8 @@
 
 module CommaTextObject where
 
-import BufferView (Location(..), exampleLines, makeStreamPairFromLines)
+import BufferView (exampleLines, makeStreamPairFromLines)
+import Location (Location(..))
 import Lex
 import Stream (Stream)
 import qualified Stream as Stream

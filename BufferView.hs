@@ -3,14 +3,13 @@
 {-# LANGUAGE TupleSections #-}
 
 module BufferView
-  ( Location(..)
-  , exampleLines
+  ( exampleLines
   , makeStreamPair
   , makeStreamPairFromLines
   , tests
   ) where
 
-import Lex (Offset)
+import Location (LineNumber, Location(..), Offset)
 import Stream (Stream)
 import qualified Stream as Stream
 import Control.Monad (guard, join)
@@ -33,25 +32,6 @@ data Bistream m a b
 
 instance Functor m => Bifunctor (Bistream m) where
   bimap f g (Bistream s t) = Bistream (f <$> s) (g <$> t)
-
-
-type LineNumber = Int
---newtype LineNumber = LineNumber Int
---  deriving (Eq, Num, Show)
-
-type ColumnNumber = Int
---newtype ColumnNumber = ColumnNumber Int
---  deriving (Eq, Num, Show)
-
-data Location = Location LineNumber ColumnNumber
-  deriving (Eq, Show)
-
-
-data Range a = Range
-  { rFrom :: a
-  , rTo :: a
-  }
-  deriving (Eq, Show)
 
 type Line = String
 

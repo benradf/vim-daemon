@@ -22,6 +22,7 @@ executable vim-server
     BufferView,
     CommaTextObject,
     Lex,
+    Location,
     Stream
   -- other-extensions:
   build-depends:
