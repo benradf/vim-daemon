@@ -9,12 +9,12 @@ module BufferView
   , tests
   ) where
 
-import Location (LineNumber, Location(..), Offset)
+import Location (LineNumber, Located(..), Location(..), Offset, unLocated)
 import Stream (Stream)
 import qualified Stream as Stream
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
-import Data.Bifunctor (Bifunctor(..))
+import Data.Bifunctor (Bifunctor(..), bimap)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -37,8 +37,8 @@ type Line = String
 
 
 data BufferView m = BufferView
-  { bvBefore :: Stream m Char
-  , bvAfter :: Stream m Char
+  { bvBefore :: Stream m (Located Char)
+  , bvAfter :: Stream m (Located Char)
 -- TODO: Add a function to request cached lines to BufferView.
   }
 
@@ -49,12 +49,15 @@ makeBufferView
   -> (LineNumber -> LineNumber -> m [Line])
   -> m (BufferView m)
 
-makeBufferView cursor@(Location line column) getLines = do
+makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
-  let toCharStream = Stream.split $ NonEmpty.fromList . (++ "\n")
-  (before, after) <- join bimap toCharStream <$> makeStreamPair line (getLinesViaCache cache)
+  -- TODO: Make the split function zip the column number with each character.
+  let toCharStream = Stream.split $ \(n, line) -> NonEmpty.fromList $
+        zipWith (Located . Location n) [ 1 .. ] $ line ++ "\n"
+
+  (before, after) <- join bimap toCharStream <$> makeStreamPair lineNum (getLinesViaCache cache)
 
   pure $ BufferView
     { bvBefore = before
@@ -83,7 +86,7 @@ makeStreamPair
   :: MonadIO m
   => Int
   -> (Int -> Int -> m [a])
-  -> m (Stream m a, Stream m a)
+  -> m (Stream m (Int, a), Stream m (Int, a))
 
 makeStreamPair index getRange = do
 
@@ -95,13 +98,13 @@ makeStreamPair index getRange = do
       n <- liftIO $ readIORef nextAfter
       elems <- getRange n (n + chunkSize - 1)
       liftIO $ writeIORef nextAfter $ n + length elems
-      pure elems
+      pure $ zip [ n .. ] elems
 
     getBefore = do
       n <- liftIO $ readIORef nextBefore
       elems <- getRange (n - chunkSize + 1) n
       liftIO $ writeIORef nextBefore $ n - length elems
-      pure $ reverse elems
+      pure $ reverse $ zip [ n - chunkSize + 1 .. ] elems
 
   (,)
     <$> Stream.fromAction getBefore
@@ -142,26 +145,43 @@ tests = Tasty.testGroup "module BufferView"
         HUnit.assertEqual "" Nothing (fromOffset 99)
 
     , HUnit.testCase "Stream lines before and after cursor" $ do
-        (streamBefore, streamAfter) <- makeStreamPairFromLines 13 exampleLines
-        beforeLines <- Stream.toList streamBefore
-        afterLines <- Stream.toList streamAfter
+        bv <- makeBufferViewFromLines 13 exampleLines
+        -- (streamBefore, streamAfter) <- makeStreamPairFromLines 13 exampleLines
+        beforeLines <- Stream.toList $ unLocated <$> bvBefore bv
+        afterLines <- Stream.toList $  unLocated <$> bvAfter bv
+  -- TODO: deal with fact that we are now streaming CharS instead of LineS
         HUnit.assertEqual "" exampleLines ((reverse beforeLines) ++ afterLines)
     ]
   ]
 
 
+makeBufferViewFromLines
+  :: MonadIO m
+  => LineNumber
+  -> [Line]
+  -> m (BufferView m)
+
+makeBufferViewFromLines cursorLineNum lines =
+  let location = Location cursorLineNum 1
+  in makeBufferView location $ \i j -> pure $ do
+    let (from, to) = (max i 1, max j 0)
+    guard (from <= to)
+    take (to - from + 1) $ drop (from - 1) lines
+
+
 -- TODO: Tag lines and chars with correct Located Location.
 makeStreamPairFromLines
   :: MonadIO m
-  => Int
+  => LineNumber
   -> [String]
   -> m (Stream m Line, Stream m Line)
 
 makeStreamPairFromLines lineNum lines =
-  makeStreamPair lineNum $ \i j -> pure $ do
-    let (from, to) = (max i 1, max j 0)
-    guard (from <= to)
-    take (to - from + 1) $ drop (from - 1) lines
+  fmap (join bimap $ fmap snd) $
+    makeStreamPair lineNum $ \i j -> pure $ do
+      let (from, to) = (max i 1, max j 0)
+      guard (from <= to)
+      take (to - from + 1) $ drop (from - 1) lines
 
 exampleLines :: [String]
 exampleLines =

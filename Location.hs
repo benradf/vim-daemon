@@ -18,7 +18,14 @@ import qualified Test.QuickCheck as QuickCheck
 
 type Offset = Int
 
-data Located a = Located Offset a
+type LineNumber = Int
+
+type ColumnNumber = Int
+
+data Location = Location LineNumber ColumnNumber
+  deriving (Eq, Show)
+
+data Located a = Located Location a
   deriving Show
 
 instance Functor Located where
@@ -30,19 +37,7 @@ unLocated (Located _ x) = x
 type LocatedString = [Located Char]
 
 makeLocatedString :: String -> LocatedString
-makeLocatedString = zipWith Located [ 0 .. ]
-
-
-type LineNumber = Int
---newtype LineNumber = LineNumber Int
---  deriving (Eq, Num, Show)
-
-type ColumnNumber = Int
---newtype ColumnNumber = ColumnNumber Int
---  deriving (Eq, Num, Show)
-
-data Location = Location LineNumber ColumnNumber
-  deriving (Eq, Show)
+makeLocatedString = zipWith Located $ repeat $ Location (-1) (-1)  -- TODO: Deprecate this function
 
 
 data Range a = Range
