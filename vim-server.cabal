@@ -19,6 +19,7 @@ extra-source-files:  CHANGELOG.md
 executable vim-server
   main-is:       Main.hs
   other-modules:
+    BufferView,
     CommaTextObject,
     Lex,
     Stream

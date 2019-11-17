@@ -42,6 +42,7 @@ import Debug.Trace (trace)
 
 import qualified Test.Tasty as Tasty
 import qualified CommaTextObject as CommaTextObject
+import qualified BufferView as BufferView
 import qualified Lex as Lex
 import qualified Stream as Stream
 
@@ -197,7 +198,8 @@ process msg = case msg of
 main :: IO ()
 main = do
   Tasty.defaultMain $ Tasty.testGroup "All Tests"
-    [ CommaTextObject.tests
+    [ BufferView.tests
+    , CommaTextObject.tests
     , Lex.tests
     , Stream.tests
     ]
