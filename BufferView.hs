@@ -56,8 +56,10 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
   -- TODO: Make the split function zip the column number with each character.
   let toCharStream = Stream.split $ \(n, line) -> NonEmpty.fromList $
         zipWith (Located . Location n) [ 1 .. ] $ line ++ "\n"
+  let toCharStream2 = Stream.split $ \(n, line) -> NonEmpty.fromList $
+        zipWith (Located . Location n) [ 1 .. ] $ reverse $ line ++ "\n"
 
-  (before, after) <- join bimap toCharStream <$> makeStreamPair lineNum (getLinesViaCache cache)
+  (before, after) <- bimap toCharStream2 toCharStream <$> makeStreamPair lineNum (getLinesViaCache cache)
 
   pure $ BufferView
     { bvBefore = before
@@ -150,7 +152,7 @@ tests = Tasty.testGroup "module BufferView"
         beforeLines <- Stream.toList $ unLocated <$> bvBefore bv
         afterLines <- Stream.toList $  unLocated <$> bvAfter bv
   -- TODO: deal with fact that we are now streaming CharS instead of LineS
-        HUnit.assertEqual "" exampleLines ((reverse beforeLines) ++ afterLines)
+        HUnit.assertEqual "" (unlines exampleLines) ((reverse beforeLines) ++ afterLines)
     ]
   ]
 
