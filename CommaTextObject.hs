@@ -3,7 +3,7 @@
 
 module CommaTextObject where
 
-import BufferView (exampleLines, makeStreamPairFromLines)
+import BufferView (BufferView(..), exampleLines, makeBufferViewFromLines)
 import Location (Location(..))
 import Lex
 import Stream (Stream)
@@ -55,9 +55,11 @@ tests = Tasty.testGroup "module CommaTextObject"
 
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
-        (streamBefore, streamAfter) <- makeStreamPairFromLines 13 exampleLines
-        tokens <- lexer (Located undefined <$> Stream.split (NonEmpty.fromList . (++ "\n")) streamBefore)
-        --mapM_ (putStrLn . show) tokens
+        bv <- makeBufferViewFromLines 13 exampleLines
+        tokens <- lexer (bvBefore bv)
+
+        mapM_ (putStrLn . show) tokens
+
         -- TODO: Finish this unit test
         -- Should probably assert that all the token locations are correct.
 

@@ -3,7 +3,10 @@
 {-# LANGUAGE TupleSections #-}
 
 module BufferView
-  ( exampleLines
+  ( BufferView(..)
+  , exampleLines
+  , makeBufferView
+  , makeBufferViewFromLines
   , makeStreamPair
   , makeStreamPairFromLines
   , tests
@@ -53,13 +56,11 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
-  -- TODO: Make the split function zip the column number with each character.
-  let toCharStream = Stream.split $ \(n, line) -> NonEmpty.fromList $
-        zipWith (Located . Location n) [ 1 .. ] $ line ++ "\n"
-  let toCharStream2 = Stream.split $ \(n, line) -> NonEmpty.fromList $
-        zipWith (Located . Location n) [ 1 .. ] $ reverse $ line ++ "\n"
+  let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $
+        zipWith (Located . Location n) [ 1 .. ] $ f $ line ++ "\n"
 
-  (before, after) <- bimap toCharStream2 toCharStream <$> makeStreamPair lineNum (getLinesViaCache cache)
+  (before, after) <- bimap (toCharStream reverse) (toCharStream id) <$>
+                     makeStreamPair lineNum (getLinesViaCache cache)
 
   pure $ BufferView
     { bvBefore = before
