@@ -16,6 +16,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Free
 import Control.Monad.Trans.Reader
+import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Types as JSON
 import qualified Data.ByteString.Lazy.Char8 as B
@@ -74,7 +75,7 @@ data Command
 
 data Callback m where
   Callback
-    :: forall a b m . JSON.FromJSON a
+    :: forall a b m . (JSON.FromJSON a, JSON.ToJSON b)
     => (a -> ReaderT (MVar (ChannelState m)) m b)
     -> Callback m
 
@@ -85,7 +86,7 @@ data ChannelState m = ChannelState
   { csCallbacks :: IntMap (Callback m)
   , csNextSeqNum :: Int
   , csOutputChannel :: Channel m
-  , csDefaultHandler :: Callback m
+  , csDefaultHandler :: Int -> Callback m
   }
 
 type VimT m a = ContT () (ReaderT (MVar (ChannelState m)) m) a
@@ -101,7 +102,9 @@ runVimT output handler m = do
     { csCallbacks = mempty
     , csNextSeqNum = -1
     , csOutputChannel = output
-    , csDefaultHandler = Callback $ flip runContT (const $ pure ()) . handler
+    , csDefaultHandler = \seqNum -> Callback $ \request -> flip runContT (const $ pure ()) $ do
+        response <- handler request
+        lift $ lift $ output $ JSON.toJSON $ Message seqNum $ JSON.toJSON response
     }
   runReaderT (runContT m (const $ pure ())) csRef
 
@@ -113,10 +116,20 @@ runVimT output handler m = do
       let handler (Callback callback) =
             case JSON.parseEither JSON.parseJSON payload of
               Left e2 -> error e2
-              Right x -> void $ runReaderT (callback x) csRef
-      case IntMap.lookup seqNum (csCallbacks cs) of
+              Right x -> JSON.toJSON <$> runReaderT (callback x) csRef
+      void $ case IntMap.lookup seqNum (csCallbacks cs) of
         Just callback -> handler callback  -- TODO: Need to remove callback from map.
-        Nothing -> handler $ csDefaultHandler cs
+        Nothing -> handler (csDefaultHandler cs seqNum)
+
+  where
+    --defaultHandlerCallback = Callback $ flip runContT (lift . output . JSON.toJSON) . handler
+    defaultHandlerCallback = Callback $
+      \request -> case JSON.parseEither JSON.parseJSON request of
+        Left e2 -> error e2
+        Right (Message seqNum payload) -> flip runContT (lift . output . JSON.toJSON) $
+          case JSON.fromJSON payload of
+            JSON.Error e3 -> error e3
+            JSON.Success x -> Message seqNum . JSON.toJSON <$> handler x
 
 
 data Message = Message
@@ -207,7 +220,10 @@ main = do
         lastLine <- evaluate @Integer "line('$')"
         ex "echom 'test'"
         normal "gg"
-        --redraw True
+
+        pure $ JSON.object
+          [ T.pack "message" .= "The result message"
+          ]
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler $ do
     lineNum <- evaluate @Integer "line('.')"
