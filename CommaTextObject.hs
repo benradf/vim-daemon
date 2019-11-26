@@ -58,7 +58,7 @@ tests = Tasty.testGroup "module CommaTextObject"
         bv <- makeBufferViewFromLines 13 exampleLines
         tokens <- lexer (bvBefore bv)
 
-        mapM_ (putStrLn . show) tokens
+        --mapM_ (putStrLn . show) tokens
 
         -- TODO: Finish this unit test
         -- Should probably assert that all the token locations are correct.

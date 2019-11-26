@@ -45,3 +45,33 @@ executable vim-server
     vector
   -- hs-source-dirs:
   default-language:    Haskell2010
+
+executable test
+  main-is:       Test.hs
+  other-modules:
+    BufferView,
+    CommaTextObject,
+    Lex,
+    Location,
+    Stream
+  -- other-extensions:
+  build-depends:
+    base >=4.10 && <4.13,
+    bytestring,
+    containers,
+    errors,
+    free,
+    aeson,
+    mtl,
+    pretty-tree,
+    QuickCheck,
+    semigroups,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    text,
+    text-zipper,
+    transformers,
+    vector
+  -- hs-source-dirs:
+  default-language:    Haskell2010

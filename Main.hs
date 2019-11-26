@@ -48,7 +48,8 @@ import qualified Location as Location
 import qualified Stream as Stream
 
 
--- let g:job = job_start(['bash', '-c', 'tee -a /tmp/vim-server.log | dist/build/vim-server/vim-server 2>&1 | tee -a /tmp/vim-server.log'], {'mode': 'json'})
+-- call ch_logfile('/tmp/channel.log', 'w')
+-- let g:job = job_start(['dist/build/vim-server/vim-server'], {'mode': 'json'})
 -- let g:channel = job_getchannel(g:job)
 -- echo ch_evalexpr(g:channel, winlayout())
 
@@ -198,15 +199,6 @@ process msg = case msg of
 -- maybe it should be bound to a g "go" command?
 main :: IO ()
 main = do
-  Tasty.defaultMain $ Tasty.testGroup "All Tests"
-    [ BufferView.tests
-    , CommaTextObject.tests
-    , Lex.tests
-    , Location.tests
-    , Stream.tests
-    ]
-
-oldMain = do
   hSetBuffering stdout LineBuffering
 
   let defaultHandler value = do
@@ -239,8 +231,7 @@ oldMain = do
 
 
 
-
-
+--------------------------------------------------------------------------------
 
 type Token = Int
 
@@ -297,59 +288,3 @@ tokens =
   , (NE.fromList "$", 7)
   ]
 
-
-
-
-
-
-
-
-
-
-
-
-{-
-data Location = Location
-  { line :: Integer
-  , column :: Integer
-  }
-
-data Range = Range
-  { from :: Location
-  , to :: Location
-  }
-
---   ( x -> ( a -> b ) -> c -> ( d -> e -> f ) )
-
-tokens =
-  [ ("->", Arrow)
-  , ("(", LeftParen)
-  , (")", RightParen)
-  , ("::", TypeAnnotation)
-  , ("\n", NewLine)
-  ]
-
-tokenize :: [Char] -> [Token]
-
-data Node
-  = Leaf Range Range -- inner and outer ranges
-  | Node [Node]
-
-data Context
-  = Root
-  | Context [Node] Context [Node]
-
-data Selection
-  = Selection [Node] Context
-
-extendLeft :: Selection -> Maybe Selection
-extendLeft (Selection _ Root) = Nothing
-extendLeft (Selection nodes (Context [] _ _)) = Nothing
-extendLeft (Selection nodes (Context (l : ls) c rs)) =
-  Just $ Selection (l : nodes) (Context ls c rs)
-
-extendUp :: Selection -> Maybe Selection
-extendUp (Selection _ Root) = Nothing
-extendUp (Selection nodes (Context ls c rs)) =
-  Just $ Selection (reverse ls ++ nodes ++ rs) c
--}
