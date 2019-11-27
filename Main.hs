@@ -25,6 +25,7 @@ import Data.Functor.Identity
 import Data.IORef
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text as T
@@ -213,11 +214,17 @@ main = do
           ]
 
   let defaultHandler2 value = do
-        Location.Location l c <- getLocation
+        loc@(Location.Location l c) <- getLocation
         liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
+        bv <- BufferView.makeBufferView loc $ \from to -> evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
+        let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
+        tokensBefore <- take 5 . map showLoc <$> lexer (BufferView.bvBefore bv)
+        tokensAfter <- take 5 . map showLoc <$> lexer (BufferView.bvAfter bv)
         pure $ JSON.object
           [ T.pack "line" .= l
           , T.pack "column" .= c
+          , T.pack "tokensBefore" .= tokensBefore
+          , T.pack "tokensAfter" .= tokensAfter
           ]
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
@@ -240,68 +247,42 @@ getLocation = Location.Location <$> evaluate "line('.')" <*> evaluate "col('.')"
 
 
 
+data Token
+  = Comma
+  | LeftParen
+  | RightParen
+  | LeftBox
+  | RightBox
+  | LeftBrace
+  | RightBrace
+  | CarriageReturn
+  | LineFeed
+  | Fmap
+  | Apply
+  | Arrow
+  | Implies
+  | Mappend
+  deriving Show
+
+lexer :: Monad m => Lex.StringStream m -> m [Location.Located Token]
+lexer = Lex.runLexer lexTree
+  where
+    lexTree = Lex.makeLexTree $ Map.fromList
+      [ (",", Comma)
+      , ("(", LeftParen)
+      , (")", RightParen)
+      , ("[", LeftBox)
+      , ("]", RightBox)
+      , ("{", LeftBrace)
+      , ("}", RightBrace)
+      , ("\r", CarriageReturn)
+      , ("\n", LineFeed)
+      , ("<$>", Fmap)
+      , ("<*>", Apply)
+      , ("->", Arrow)
+      , ("=>", Implies)
+      , ("<>", Mappend)
+      ]
 
 
-
-
-
-
-
-
---------------------------------------------------------------------------------
-
-type Token = Int
-
-type LexerState = [(NE.NonEmpty Char, Token)]
-
-  --case filter (null . fst) newState of
-      --put $ catMaybes $ bitraverse identity Just . first NE.nonEmpty <$> newState
-
---trace _ = id
-
-lexer :: [Char] -> State LexerState [Token]
-lexer [] = pure []
-lexer string = do
-  (token, string') <- step string
-  case token of
-    Just t -> (t :) <$> lexer string'
-    Nothing -> lexer string'
-
-step :: [Char] -> State LexerState (Maybe Token, [Char])
-step (c : cs) = do
-  existingState <- get
-  
-  reduceResult <- gets $ catMaybes . fmap (reduce c)
-  let newState = catMaybes $ bitraverse id Just . first NE.nonEmpty <$> reduceResult
-
-  if trace ("  c = " <> show c <> "\n  cs = " <> show cs <> "\n  reduceResult = " <> show reduceResult <> "\n  newState = " <> show newState) $ not (null newState) && not (null cs)
-    then trace "CONT" $ put newState $> (Nothing, cs)                         -- Continue trying to match tokens.
-    else case reduceResult of
-      [([], token)] -> trace ("EMIT: " <> show token) $ put tokens $> (Just token, c : cs)  -- Emit a token.
-      [] -> trace ("SKIP") $ put tokens $> (Nothing, cs)  -- Skip letters not part of known token.
-      _ -> error "ambiguous"
-step [] = trace "DONE" $ pure (Nothing, [])
-
-
--- TODO: Move the string being parsed into the state and use it for back tracking
-data TokenMatcher
-  = TokenMatching Token (NE.NonEmpty Char)
-  | TokenMatched Token [Char]  -- where [Char] is string to continue from if we back track here
-
-reduce
-  :: Char
-  -> (NE.NonEmpty Char, Token)
-  -> Maybe ([Char], Token)
-reduce c' (c :| cs, token) = guard (c == c') *> Just (cs, token)
-
-tokens :: [(NE.NonEmpty Char, Token)]
-tokens =
-  [ (NE.fromList "->", 1)
-  , (NE.fromList "-->", 2)
-  , (NE.fromList "<-", 3)
-  , (NE.fromList "::", 4)
-  , (NE.fromList ":::", 5)
-  , (NE.fromList "=>", 6)
-  , (NE.fromList "$", 7)
-  ]
 

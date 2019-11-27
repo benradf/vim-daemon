@@ -62,6 +62,8 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
   (before, after) <- bimap (toCharStream reverse) (toCharStream id) <$>
                      makeStreamPair lineNum (getLinesViaCache cache)
 
+  -- TODO: extract from after and prepend to before (column - 1) characters
+
   pure $ BufferView
     { bvBefore = before
     , bvAfter = after
