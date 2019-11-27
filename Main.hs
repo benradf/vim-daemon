@@ -89,7 +89,7 @@ data ChannelState m = ChannelState
   , csDefaultHandler :: Int -> Callback m
   }
 
-type VimT m a = ContT () (ReaderT (MVar (ChannelState m)) m) a
+type VimT m a = MonadIO m => ContT () (ReaderT (MVar (ChannelState m)) m) a
 
 runVimT
   :: ( MonadIO m
@@ -150,7 +150,7 @@ instance JSON.FromJSON Message where
     <*> maybe (fail "missing payload") JSON.parseJSON (array !? 1)
 
 
-evaluate :: (JSON.FromJSON a, MonadIO m) => String -> VimT m a
+evaluate :: JSON.FromJSON a => String -> VimT m a
 evaluate expression = ContT $ \k -> do
   csRef <- ask
   seqNum <- liftIO $ modifyMVar csRef $ \cs ->
@@ -169,39 +169,26 @@ evaluate expression = ContT $ \k -> do
   pure ()
 
 
-ex :: MonadIO m => String -> VimT m ()
+ex :: String -> VimT m ()
 ex expression =
   liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
     [ JSON.String $ T.pack "ex"
     , JSON.String $ T.pack expression
     ]
 
-redraw :: MonadIO m => Bool -> VimT m ()
+redraw :: Bool -> VimT m ()
 redraw force =
   liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
     [ JSON.String $ T.pack "redraw"
     , JSON.String $ T.pack $ if force then "force" else ""
     ]
 
-normal :: MonadIO m => String -> VimT m ()
+normal :: String -> VimT m ()
 normal commands =
   liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
     [ JSON.String $ T.pack "normal"
     , JSON.String $ T.pack commands
     ]
-
-handleMessage :: JSON.Value -> JSON.Value
-handleMessage = id
-
-process :: Maybe JSON.Value -> IO ()
-process msg = case msg of
-  Just v@(JSON.Array values) -> do
-    let sequence_number = values ! 0
-    B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
-      [ sequence_number
-      , handleMessage (values ! 1)
-      ]
-  _ -> pure ()
 
 
 -- TODO: functionality to "pin visual selection"
@@ -225,7 +212,15 @@ main = do
           [ T.pack "message" .= "The result message"
           ]
 
-  inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler $ do
+  let defaultHandler2 value = do
+        Location.Location l c <- getLocation
+        liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
+        pure $ JSON.object
+          [ T.pack "line" .= l
+          , T.pack "column" .= c
+          ]
+
+  inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
     lineNum <- evaluate @Integer "line('.')"
     liftIO $ appendFile "/tmp/vim-server.log" $ "evaluate result is " <> show lineNum <> "\n"
     pure ()
@@ -236,6 +231,12 @@ main = do
 
   void $ join $ traverse (inputCh . decode) . B.lines <$> B.getContents
 
+
+
+
+
+getLocation :: VimT m Location.Location
+getLocation = Location.Location <$> evaluate "line('.')" <*> evaluate "col('.')"
 
 
 
