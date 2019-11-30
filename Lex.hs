@@ -2,9 +2,10 @@
 {-# LANGUAGE TupleSections #-}
 
 module Lex
-  ( StringStream
+  ( LexTree
   , Located(..)  -- TODO: Do not export data constructors.
-  , LexTree
+  , LocatedStream
+  , StringStream
   , makeLexTree
   , makeLocatedString
   , makeStringStream
@@ -50,7 +51,7 @@ import Debug.Trace (trace)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Tree.Pretty as Pretty
 
-import Location (Located(..), makeLocatedString, unLocated)
+import Location (Located(..), Location(..), makeLocatedString, unLocated)
 import Stream (Stream(..))
 import qualified Stream as Stream
 
@@ -119,21 +120,23 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty = map (first NonEmpty.fromList)
 
 
+type LocatedStream m a = Stream m (Located a)
+
 type StringStream m = Stream m (Located Char)
 
 makeStringStream :: String -> StringStream Identity
 makeStringStream = Stream.fromList . makeLocatedString
 
 
-runLexer :: Monad m => LexTree a -> StringStream m -> m [Located a]
+runLexer :: Monad m => LexTree a -> StringStream m -> m (LocatedStream m a)
 runLexer tree stream =
   Stream.extract stream >>= \case
-    Nothing -> pure []
+    Nothing -> pure mempty
 
     Just (char, stream') ->
       runMaybeT (runStateT attempt (pure tree, stream)) >>= \case
         Just (token, (_, stream')) ->
-          ((token <$ char) :) <$> runLexer tree stream'
+          pure $ Stream (token <$ char) (runLexer tree stream')
 
         Nothing ->
           runLexer tree stream'
@@ -175,7 +178,7 @@ lexTree
   $ tokens
 
 lexer :: String -> [Located Token]
-lexer = runIdentity . runLexer lexTree . makeStringStream
+lexer = runIdentity . Stream.toList . runIdentity . runLexer lexTree . makeStringStream
 
 
 -- Idea For Another Vim Service / Plugin:
@@ -209,11 +212,16 @@ tests = Tasty.testGroup "module Lex"
     [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
         let string = "<-=>"
         let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
-        let result = concat $ unLocated <$> runIdentity (runLexer lexTree (makeStringStream string))
+        let result = concat $ runIdentity $ Stream.toList $ unLocated <$> runIdentity (runLexer lexTree (makeStringStream string))
         HUnit.assertEqual "Lexed correctly" string result
     ]
 
-  , Tasty.testGroup "Unit" [ ]
+  , Tasty.testGroup "Unit"
+    [ HUnit.testCase "Infinite stream is lexed lazily" $ do
+        infiniteTokenStream <- runLexer lexTree =<< Stream.fromAction (pure [ Located (Location 1 1) 'X' ])
+        someTokens <- Stream.toList $ Stream.take 10 infiniteTokenStream
+        HUnit.assertEqual "" (replicate 10 X) (unLocated <$> someTokens)
+    ]
   ]
 
 

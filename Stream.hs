@@ -2,16 +2,21 @@
 {-# LANGUAGE TupleSections #-}
 
 module Stream
-  ( Stream
+  ( Stream(..)  -- do not export constructors
+  , drop
   , extract
   , fromAction
   , fromList
   , peek
   , prepend
   , split
+  , take
   , tests
   , toList
   ) where
+
+import Prelude hiding (drop, take)
+import qualified Prelude as Prelude
 
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
@@ -19,9 +24,14 @@ import qualified Test.Tasty.QuickCheck as QuickCheck
 
 import Data.Functor.Identity (Identity(..))
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Maybe (fromMaybe)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Monoid (Monoid(..))
 import Data.Semigroup (Semigroup(..))
+import Control.Monad ((>=>))
+import Control.Monad.Trans.Maybe (MaybeT(..))
+
+import Debug.Trace (trace)
 
 
 data Stream m a
@@ -63,6 +73,31 @@ peek = \case
 prepend :: Applicative m => a -> Stream m a -> Stream m a
 prepend x xs = Stream x (pure xs)
 
+drop :: Monad m => Int -> Stream m a -> m (Stream m a)
+drop
+  = \n -> fmap (fmap (fromMaybe Stream.EndOfStream) . runMaybeT)
+  $ foldl1 (>=>) $ Prelude.take n $ repeat $ MaybeT . (fmap . fmap) snd . Stream.extract
+
+take :: Monad m => Int -> Stream m a -> Stream m a
+take = curry $ \case
+  (_, EndOfStream) -> EndOfStream
+  (n, Stream x xs)
+    | n <= 0 -> EndOfStream
+    | otherwise -> Stream x $ Stream.take (n - 1) <$> xs
+
+--take = curry $ \case
+--  (n, s@(Stream x xs))
+--    | n <= 0    -> pure EndOfStream
+--    | otherwise -> _ <$> Stream.take (n - 1) xs
+--  (_, EndOfStream) -> pure EndOfStream
+--
+--drop :: Monad m => Int -> Stream m a -> m (Stream m a)
+--drop = curry $ \case
+--  (n, s@(Stream x xs))
+--    | n <= 0    -> pure s
+--    | otherwise -> Stream.drop (n - 1) =<< xs
+--  (_, EndOfStream) -> pure EndOfStream
+
 fromList :: Applicative m => [a] -> Stream m a
 fromList = \case
   x : xs -> Stream x (pure $ fromList xs)
@@ -83,7 +118,7 @@ split f = \case
 fromAction :: Monad m => m [a] -> m (Stream m a)
 fromAction action = action >>= \case
   [] -> pure EndOfStream
-  elems -> (fromList elems <>) <$> fromAction action
+  elems -> foldr (fmap pure . Stream) (fromAction action) elems
 
 
 prop_SplitWithNewlineIsUnlines :: [String] -> Bool

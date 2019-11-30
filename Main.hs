@@ -1,9 +1,8 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE ExplicitForAll #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -34,6 +33,7 @@ import Data.Vector ((!), (!?))
 import qualified Data.Vector as V
 import Prelude
 import System.IO
+import GHC.Generics
 
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty(..))
@@ -213,18 +213,19 @@ main = do
           [ T.pack "message" .= "The result message"
           ]
 
-  let defaultHandler2 value = do
+  let defaultHandler2 :: MonadIO m => String -> VimT m JSON.Value
+      defaultHandler2 value = do
         loc@(Location.Location l c) <- getLocation
         liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
         bv <- BufferView.makeBufferView loc $ \from to -> evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
         let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
-        tokensBefore <- take 5 . map showLoc <$> lexer (BufferView.bvBefore bv)
-        tokensAfter <- take 5 . map showLoc <$> lexer (BufferView.bvAfter bv)
+        tokensBefore <- Stream.toList =<< Stream.take 10 <$> lexer (BufferView.bvBefore bv)
+        tokensAfter <- Stream.toList =<< Stream.take 10 <$>  lexer (BufferView.bvAfter bv)
         pure $ JSON.object
           [ T.pack "line" .= l
           , T.pack "column" .= c
-          , T.pack "tokensBefore" .= tokensBefore
-          , T.pack "tokensAfter" .= tokensAfter
+          , T.pack "tokensBefore" .= (Location.unLocated <$> tokensBefore)
+          , T.pack "tokensAfter" .= (Location.unLocated <$> tokensAfter)
           ]
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
@@ -262,9 +263,10 @@ data Token
   | Arrow
   | Implies
   | Mappend
-  deriving Show
+  deriving (Generic, JSON.ToJSON, Show)
 
-lexer :: Monad m => Lex.StringStream m -> m [Location.Located Token]
+--lexer :: Monad m => Lex.StringStream m -> m [Location.Located Token]
+lexer :: Monad m => Lex.StringStream m -> m (Lex.LocatedStream m Token)
 lexer = Lex.runLexer lexTree
   where
     lexTree = Lex.makeLexTree $ Map.fromList

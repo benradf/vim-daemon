@@ -29,7 +29,7 @@ data Token
   deriving Show
 
 lexer :: Monad m => StringStream m -> m [Located Token]
-lexer = runLexer lexTree
+lexer = (Stream.toList =<<) . runLexer lexTree
   where
     lexTree :: LexTree Token
     lexTree = makeLexTree $ Map.fromList
