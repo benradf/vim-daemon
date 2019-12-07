@@ -23,6 +23,7 @@ executable vim-server
     CommaTextObject,
     Lex,
     Location,
+    Service,
     Stream
   -- other-extensions:
   build-depends:
@@ -53,6 +54,7 @@ executable test
     CommaTextObject,
     Lex,
     Location,
+    Service,
     Stream
   -- other-extensions:
   build-depends:

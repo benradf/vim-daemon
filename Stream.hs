@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 
 module Stream
-  ( Stream(..)  -- do not export constructors
+  ( Stream(..)  -- TODO: do not export constructors
   , drop
   , extract
   , fromAction
@@ -73,6 +73,7 @@ peek = \case
 prepend :: Applicative m => a -> Stream m a -> Stream m a
 prepend x xs = Stream x (pure xs)
 
+-- TODO: Reimplement this in the recursive style of `take`.
 drop :: Monad m => Int -> Stream m a -> m (Stream m a)
 drop
   = \n -> fmap (fmap (fromMaybe Stream.EndOfStream) . runMaybeT)

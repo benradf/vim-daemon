@@ -26,7 +26,7 @@ data Location = Location LineNumber ColumnNumber
   deriving (Eq, Show)
 
 data Located a = Located Location a
-  deriving Show
+  deriving (Eq, Show)
 
 instance Functor Located where
   fmap f (Located n x) = Located n (f x)
@@ -37,7 +37,7 @@ unLocated (Located _ x) = x
 type LocatedString = [Located Char]
 
 makeLocatedString :: String -> LocatedString
-makeLocatedString = zipWith Located $ repeat $ Location (-1) (-1)  -- TODO: Deprecate this function
+makeLocatedString = zipWith Located $ Location 1 <$> [ 1 .. ]
 
 
 data Range a = Range
