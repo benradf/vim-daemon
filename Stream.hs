@@ -168,11 +168,16 @@ prop_CannotSeekPastEndOfStream string = runIdentity $ do
     , isNothing <$> seek (negate $ length string + 1) bistream
     ]
 
+prop_StreamTakeListTakeEquivalence :: (String, Int) -> Bool
+prop_StreamTakeListTakeEquivalence (string, n) = runIdentity $
+  toList (Stream.take n (fromList string)) <&> (== Prelude.take n string)
+
 
 tests :: Tasty.TestTree
 tests = Tasty.testGroup "module Stream"
   [ Tasty.testGroup "QuickCheck"
-    [ QuickCheck.testProperty "Split with newline is same as unlines function" prop_SplitWithNewlineIsUnlines
+    [ QuickCheck.testProperty "Stream.take is equivalent to Data.List.take" prop_StreamTakeListTakeEquivalence
+    , QuickCheck.testProperty "Split with newline is same as unlines function" prop_SplitWithNewlineIsUnlines
     , QuickCheck.testProperty "Seeking to end reverses string" prop_SeekLengthReversesStream
     , QuickCheck.testProperty "Cannot seek past end of stream" prop_CannotSeekPastEndOfStream
     ]
