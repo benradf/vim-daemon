@@ -9,6 +9,7 @@ module Stream
   , fromList
   , peek
   , prepend
+  , seek
   , split
   , take
   , tests
@@ -162,6 +163,8 @@ prop_StreamTakeListTakeEquivalence (string, n) = runIdentity $
 prop_StreamDropListDropEquivalence :: (String, Int) -> Bool
 prop_StreamDropListDropEquivalence (string, n) = runIdentity $
   (Stream.toList =<< Stream.drop n (fromList string)) <&> (== Prelude.drop n string)
+
+-- TODO: QuickCheck test that `(MaybeT . seek n) <=< (MaybeT . seek (-n)) == id`
 
 tests :: Tasty.TestTree
 tests = Tasty.testGroup "module Stream"

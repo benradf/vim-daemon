@@ -1,14 +1,15 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
 module BufferView
   ( BufferView(..)
+  , Reverse(..)  -- TODO: should this be in BufferView.hs?
   , exampleLines
   , makeBufferView
   , makeBufferViewFromLines
   , makeStreamPair
-  , makeStreamPairFromLines
   , tests
   ) where
 
@@ -18,9 +19,12 @@ import qualified Stream as Stream
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Bifunctor (Bifunctor(..), bimap)
+import Data.Foldable (foldMap)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
+import Data.Maybe (fromMaybe)
+import Data.Monoid (Endo(..))
 import qualified Data.Vector as Vector
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (Maybe(..), listToMaybe)
@@ -28,6 +32,8 @@ import Data.Maybe (Maybe(..), listToMaybe)
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
+
+import Debug.Trace (trace)
 
 
 data Bistream m a b
@@ -49,20 +55,20 @@ data BufferView m = BufferView
 makeBufferView
   :: MonadIO m
   => Location
-  -> (LineNumber -> LineNumber -> m [Line])
+  -> (LineNumber -> LineNumber -> m [(LineNumber, Line)])
   -> m (BufferView m)
 
 makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
-  let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $
-        zipWith (Located . Location n) [ 1 .. ] $ f $ line ++ "\n"
+  let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $ f $
+        zipWith (Located . Location n) [ 1 .. length line + 1 ] $ line ++ "\n"
 
-  (before, after) <- bimap (toCharStream reverse) (toCharStream id) <$>
-                     makeStreamPair lineNum (getLinesViaCache cache)
+  bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
+              makeStreamPair lineNum (getLinesViaCache cache)
 
-  -- TODO: extract from after and prepend to before (column - 1) characters
+  (before, after) <- fromMaybe bistream <$> Stream.seek (columnNum - 1) bistream
 
   pure $ BufferView
     { bvBefore = before
@@ -77,20 +83,75 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
         then pure cached
         else do
           lines <- getLines from to
-          liftIO $ modifyIORef cache $ addLinesToCache from lines
+          liftIO $ modifyIORef cache $ addLinesToCache lines
           pure lines
 
     lookupRange from to map =
-      IntMap.elems $ fst $ IntMap.split (to + 1) $ snd $ IntMap.split from $ map
+      IntMap.toAscList $ fst $ IntMap.split (to + 1) $ snd $ IntMap.split from $ map
 
-    addLinesToCache from lines map =
-      IntMap.fromAscList (zip [ from .. ] lines) `IntMap.union` map
+    addLinesToCache lines map =
+      IntMap.fromAscList lines `IntMap.union` map
 
 
+--    getNext next advance =
+--      liftIO (readIORef next) >>= \case
+--        Nothing -> pure []
+--        Just i -> do
+--          let j = pred $ advance i
+--          elems <- getRange i j
+--          liftIO $ writeIORef next $
+--            if map fst elems == [ i .. j ]
+--              then Just $ succ j
+--              else Nothing
+--          pure elems
+
+
+makeStream
+  :: (Eq a, Enum a, MonadIO m)
+  => a
+  -> Int
+  -> (a -> a -> m [(a, b)])
+  -> m (Stream m (a, b))
+
+makeStream index chunkSize getRange = do
+  next <- liftIO $ newIORef $ Just index
+
+  Stream.fromAction $
+    liftIO (readIORef next) >>= \case
+      Nothing -> pure []
+
+      Just i -> do
+        let j = advance i
+        elems <- getRange i (pred j)
+
+        liftIO $ writeIORef next $
+          if map fst elems == [ i .. j ]
+            then Just $ succ j
+            else Nothing
+
+        pure elems
+
+  where
+    advance :: Enum a => a -> a
+    advance = appEndo $ foldMap Endo $ replicate chunkSize succ
+
+
+newtype Reverse a = Reverse
+  { unReverse :: a }
+  deriving (Bounded, Eq, Functor, Ord, Show)
+
+instance Enum a => Enum (Reverse a) where
+  succ = fmap pred
+  pred = fmap succ
+  toEnum = Reverse . toEnum
+  fromEnum = fromEnum . unReverse
+
+
+-- TODO: Use `Enum a` instead of `Int` here?
 makeStreamPair
   :: MonadIO m
   => Int
-  -> (Int -> Int -> m [a])
+  -> (Int -> Int -> m [(Int, a)])
   -> m (Stream m (Int, a), Stream m (Int, a))
 
 makeStreamPair index getRange = do
@@ -99,17 +160,31 @@ makeStreamPair index getRange = do
   nextBefore <- liftIO $ newIORef $ index - 1
 
   let
+    getNext2 next advance =
+      liftIO (readIORef next) >>= \case
+        Nothing -> pure []
+        Just i -> do
+          let j = pred $ advance i
+          elems <- getRange i j
+          liftIO $ writeIORef next $
+            if map fst elems == [ i .. j ]
+              then Just $ succ j
+              else Nothing
+          pure elems
+
     getAfter = do
       n <- liftIO $ readIORef nextAfter
       elems <- getRange n (n + chunkSize - 1)
       liftIO $ writeIORef nextAfter $ n + length elems
-      pure $ zip [ n .. ] elems
+      pure elems
 
     getBefore = do
       n <- liftIO $ readIORef nextBefore
       elems <- getRange (n - chunkSize + 1) n
       liftIO $ writeIORef nextBefore $ n - length elems
-      pure $ reverse $ zip [ n - chunkSize + 1 .. ] elems
+      pure $ reverse elems
+
+-- TODO: Fix negative range problems etc
 
   (,)
     <$> Stream.fromAction getBefore
@@ -149,44 +224,44 @@ tests = Tasty.testGroup "module BufferView"
         HUnit.assertEqual "" Nothing (fromOffset 32)
         HUnit.assertEqual "" Nothing (fromOffset 99)
 
-    , HUnit.testCase "Stream lines before and after cursor" $ do
-        bv <- makeBufferViewFromLines 13 exampleLines
-        -- (streamBefore, streamAfter) <- makeStreamPairFromLines 13 exampleLines
+    {-, HUnit.testCase "Stream lines before and after cursor" $ do
+        bv <- makeBufferViewFromLines (Location 14 21) exampleLines
         beforeLines <- Stream.toList $ unLocated <$> bvBefore bv
         afterLines <- Stream.toList $  unLocated <$> bvAfter bv
   -- TODO: deal with fact that we are now streaming CharS instead of LineS
-        HUnit.assertEqual "" (unlines exampleLines) ((reverse beforeLines) ++ afterLines)
+        HUnit.assertEqual "" (unlines exampleLines) ((reverse beforeLines) ++ afterLines) -}
     ]
   ]
 
 
 makeBufferViewFromLines
   :: MonadIO m
-  => LineNumber
+  => Location
   -> [Line]
   -> m (BufferView m)
 
-makeBufferViewFromLines cursorLineNum lines =
-  let location = Location cursorLineNum 1
-  in makeBufferView location $ \i j -> pure $ do
+makeBufferViewFromLines cursorLocation lines =
+  makeBufferView cursorLocation $ \i j -> pure $ do
+    trace ("\x1b[33m[ " ++ show i ++ " .. " ++ show j ++ " ]\x1b[0m") (pure ())
     let (from, to) = (max i 1, max j 0)
+    trace ("\x1b[1;33m[ " ++ show from ++ " .. " ++ show to ++ " ]\x1b[0m") (pure ())
     guard (from <= to)
-    take (to - from + 1) $ drop (from - 1) lines
+    take (to - from + 1) $ drop (from - 1) $ zip [ 1 .. ] lines
 
 
 -- TODO: Tag lines and chars with correct Located Location.
-makeStreamPairFromLines
-  :: MonadIO m
-  => LineNumber
-  -> [String]
-  -> m (Stream m Line, Stream m Line)
-
-makeStreamPairFromLines lineNum lines =
-  fmap (join bimap $ fmap snd) $
-    makeStreamPair lineNum $ \i j -> pure $ do
-      let (from, to) = (max i 1, max j 0)
-      guard (from <= to)
-      take (to - from + 1) $ drop (from - 1) lines
+--makeStreamPairFromLines
+--  :: MonadIO m
+--  => LineNumber
+--  -> [String]
+--  -> m (Stream m Line, Stream m Line)
+--
+--makeStreamPairFromLines lineNum lines =
+--  fmap (join bimap $ fmap snd) $
+--    makeStreamPair lineNum $ \i j -> pure $ do
+--      let (from, to) = (max i 1, max j 0)
+--        guard (from <= to)
+--      take (to - from + 1) $ drop (from - 1) lines
 
 exampleLines :: [String]
 exampleLines =

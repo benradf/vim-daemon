@@ -86,10 +86,16 @@ tests = Tasty.testGroup "module CommaTextObject"
 
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
-        bv <- makeBufferViewFromLines 13 exampleLines
+        bv <- makeBufferViewFromLines (Location 7 50) exampleLines
         tokens <- lexer (bvBefore bv) >>= Stream.toList
 
-        --mapM_ (putStrLn . show) tokens
+        putStrLn ""
+        putStr "\x1b[36;40m"
+        putStrLn . map unLocated =<< Stream.toList (bvBefore bv)
+        putStr "\x1b[0m"
+
+        putStrLn ""
+        mapM_ (putStrLn . show) tokens
 
         -- TODO: Finish this unit test
         -- Should probably assert that all the token locations are correct.
