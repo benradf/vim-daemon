@@ -15,6 +15,7 @@ module BufferView
 import Location (LineNumber, Located(..), Location(..), Offset, unLocated)
 import Stream (Stream)
 import qualified Stream as Stream
+import Control.Arrow ((&&&))
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Bifunctor (Bifunctor(..), bimap)
@@ -22,6 +23,7 @@ import Data.Foldable (foldMap)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
+import Data.List (sortBy)
 import Data.Maybe (fromMaybe)
 import Data.Monoid (Endo(..))
 import qualified Data.Vector as Vector
@@ -64,11 +66,12 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
   let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $ f $
         zipWith (Located . Location n) [ 1 .. length line + 1 ] $ line ++ "\n"
 
-  bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
-              makeStreamPair lineNum (getLinesViaCache cache)
+  lhs <- makeStream lineNum (advance 2 pred &&& advance 3 pred) (flip compare) (getLinesViaCache cache)
+  rhs <- makeStream lineNum (advance 2 succ &&& advance 3 pred) compare (getLinesViaCache cache)
 
-  rhs <- makeStream lineNum (appEndo $ foldMap Endo $ replicate 5 succ) (getLinesViaCache cache)
-  --lhs <- fmap (first unReverse) <$> makeStream (Reverse $ lineNum - 1) 5 (getLinesViaCache cache)
+  bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
+              pure (lhs, rhs)
+              --makeStreamPair lineNum (getLinesViaCache cache)
 
   (before, after) <- fromMaybe bistream <$> Stream.seek (columnNum - 1) bistream
 
@@ -78,6 +81,8 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
     }
 
   where
+    advance n = appEndo . foldMap Endo . replicate n
+
     getLinesViaCache cache from to = do
       cached <- lookupRange from to <$> liftIO (readIORef cache)
 
@@ -109,13 +114,14 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
 
 makeStream
-  :: (Enum a, Eq a, Ord a, MonadIO m)
+  :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
   => a
-  -> (a -> a)
+  -> (a -> (a, a))
+  -> (a -> a -> Ordering)
   -> (a -> a -> m [(a, b)])
   -> m (Stream m (a, b))
 
-makeStream index advance getRange = do
+makeStream index advance compare getRange = do
   next <- liftIO $ newIORef $ Just index
 
   Stream.fromAction $
@@ -123,15 +129,15 @@ makeStream index advance getRange = do
       Nothing -> pure []
 
       Just i -> do
-        let j = advance i
-        elems <- getRange i j
+        let (j, i') = advance i
+        elems <- getRange (min i j) (max i j)
 
         liftIO $ writeIORef next $
           if map fst elems == [ min i j .. max i j ]
-            then Just $ succ j
-            else Nothing
+            then Just i'
+            else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
 
-        pure elems
+        pure $ sortBy (\(i, _) (j, _) -> compare i j) elems
 
 
 -- TODO: Use `Enum a` instead of `Int` here?
