@@ -78,32 +78,19 @@ peek = \case
 prepend :: Applicative m => a -> Stream m a -> Stream m a
 prepend x xs = Stream x (pure xs)
 
--- TODO: Reimplement this in the recursive style of `take`.
 drop :: Monad m => Int -> Stream m a -> m (Stream m a)
-drop
-  = \n -> fmap (fmap (fromMaybe Stream.EndOfStream) . runMaybeT)
-  $ foldl1 (>=>) $ Prelude.take n $ repeat $ MaybeT . (fmap . fmap) snd . Stream.extract
+drop = curry $ \case
+  (_, EndOfStream) -> pure EndOfStream
+  (n, stream@(Stream x xs))
+    | n <= 0 -> pure stream
+    | otherwise -> drop (n - 1) =<< xs
 
 take :: Monad m => Int -> Stream m a -> Stream m a
 take = curry $ \case
   (_, EndOfStream) -> EndOfStream
   (n, Stream x xs)
     | n <= 0 -> EndOfStream
-    | otherwise -> Stream x $ Stream.take (n - 1) <$> xs
-
---take = curry $ \case
---  (n, s@(Stream x xs))
---    | n <= 0    -> pure EndOfStream
---    | otherwise -> _ <$> Stream.take (n - 1) xs
---  (_, EndOfStream) -> pure EndOfStream
---
---drop :: Monad m => Int -> Stream m a -> m (Stream m a)
---drop = curry $ \case
---  (n, s@(Stream x xs))
---    | n <= 0    -> pure s
---    | otherwise -> Stream.drop (n - 1) =<< xs
---  (_, EndOfStream) -> pure EndOfStream
-
+    | otherwise -> Stream x $ take (n - 1) <$> xs
 
 type Bistream m a = (Stream m a, Stream m a)
 
@@ -172,11 +159,15 @@ prop_StreamTakeListTakeEquivalence :: (String, Int) -> Bool
 prop_StreamTakeListTakeEquivalence (string, n) = runIdentity $
   toList (Stream.take n (fromList string)) <&> (== Prelude.take n string)
 
+prop_StreamDropListDropEquivalence :: (String, Int) -> Bool
+prop_StreamDropListDropEquivalence (string, n) = runIdentity $
+  (Stream.toList =<< Stream.drop n (fromList string)) <&> (== Prelude.drop n string)
 
 tests :: Tasty.TestTree
 tests = Tasty.testGroup "module Stream"
   [ Tasty.testGroup "QuickCheck"
     [ QuickCheck.testProperty "Stream.take is equivalent to Data.List.take" prop_StreamTakeListTakeEquivalence
+    , QuickCheck.testProperty "Stream.drop is equivalent to Data.List.drop" prop_StreamDropListDropEquivalence
     , QuickCheck.testProperty "Split with newline is same as unlines function" prop_SplitWithNewlineIsUnlines
     , QuickCheck.testProperty "Seeking to end reverses string" prop_SeekLengthReversesStream
     , QuickCheck.testProperty "Cannot seek past end of stream" prop_CannotSeekPastEndOfStream
