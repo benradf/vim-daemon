@@ -5,7 +5,6 @@
 
 module BufferView
   ( BufferView(..)
-  , Reverse(..)  -- TODO: should this be in BufferView.hs?
   , exampleLines
   , makeBufferView
   , makeBufferViewFromLines
@@ -68,6 +67,9 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
   bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
               makeStreamPair lineNum (getLinesViaCache cache)
 
+  rhs <- makeStream lineNum (appEndo $ foldMap Endo $ replicate 5 succ) (getLinesViaCache cache)
+  --lhs <- fmap (first unReverse) <$> makeStream (Reverse $ lineNum - 1) 5 (getLinesViaCache cache)
+
   (before, after) <- fromMaybe bistream <$> Stream.seek (columnNum - 1) bistream
 
   pure $ BufferView
@@ -107,13 +109,13 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
 
 makeStream
-  :: (Eq a, Enum a, MonadIO m)
+  :: (Enum a, Eq a, Ord a, MonadIO m)
   => a
-  -> Int
+  -> (a -> a)
   -> (a -> a -> m [(a, b)])
   -> m (Stream m (a, b))
 
-makeStream index chunkSize getRange = do
+makeStream index advance getRange = do
   next <- liftIO $ newIORef $ Just index
 
   Stream.fromAction $
@@ -122,29 +124,14 @@ makeStream index chunkSize getRange = do
 
       Just i -> do
         let j = advance i
-        elems <- getRange i (pred j)
+        elems <- getRange i j
 
         liftIO $ writeIORef next $
-          if map fst elems == [ i .. j ]
+          if map fst elems == [ min i j .. max i j ]
             then Just $ succ j
             else Nothing
 
         pure elems
-
-  where
-    advance :: Enum a => a -> a
-    advance = appEndo $ foldMap Endo $ replicate chunkSize succ
-
-
-newtype Reverse a = Reverse
-  { unReverse :: a }
-  deriving (Bounded, Eq, Functor, Ord, Show)
-
-instance Enum a => Enum (Reverse a) where
-  succ = fmap pred
-  pred = fmap succ
-  toEnum = Reverse . toEnum
-  fromEnum = fromEnum . unReverse
 
 
 -- TODO: Use `Enum a` instead of `Int` here?
