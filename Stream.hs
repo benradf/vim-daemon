@@ -22,14 +22,19 @@ import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
 
+import Data.Foldable (and)
 import Data.Functor.Identity (Identity(..))
 import Data.List.NonEmpty (NonEmpty(..))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Monoid (Monoid(..))
 import Data.Semigroup (Semigroup(..))
+import Data.Tuple (swap)
 import Control.Monad ((>=>))
+import Control.Monad.State (get, put)
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
+import Control.Monad.Trans.State (StateT(..), execStateT)
 
 import Debug.Trace (trace)
 
@@ -99,6 +104,25 @@ take = curry $ \case
 --    | otherwise -> Stream.drop (n - 1) =<< xs
 --  (_, EndOfStream) -> pure EndOfStream
 
+
+type Bistream m a = (Stream m a, Stream m a)
+
+seek :: Monad m => Int -> Bistream m a -> m (Maybe (Bistream m a))
+seek n
+  | n > 0 = seekMany n
+  | n < 0 = seekMany (abs n) . swap
+  | otherwise = pure . Just
+
+  where
+    seekMany :: Monad m => Int -> Bistream m a -> m (Maybe (Bistream m a))
+    seekMany n = runMaybeT . execStateT (foldr1 (*>) (replicate n seekOne))
+
+    seekOne :: Monad m => StateT (Bistream m a) (MaybeT m) ()
+    seekOne = do
+      (lhs, rhs) <- get
+      (x, rhs') <- lift $ MaybeT $ Stream.extract rhs
+      put (Stream.prepend x lhs, rhs')
+
 fromList :: Applicative m => [a] -> Stream m a
 fromList = \case
   x : xs -> Stream x (pure $ fromList xs)
@@ -128,11 +152,29 @@ prop_SplitWithNewlineIsUnlines strings =
       charStream = split (NonEmpty.fromList . (++ "\n")) lineStream
   in runIdentity (toList charStream) == unlines strings
 
+prop_SeekLengthReversesStream :: String -> Bool
+prop_SeekLengthReversesStream string = runIdentity $ do
+  let bistream = (mempty, fromList string)
+  seek (length string) bistream >>= \case
+    Just (lhs, rhs) -> toList lhs <&> (== reverse string)
+    Nothing -> pure False
+
+prop_CannotSeekPastEndOfStream :: String -> Bool
+prop_CannotSeekPastEndOfStream string = runIdentity $ do
+  let stream = fromList string
+      bistream = (stream, stream)
+  and <$> sequenceA
+    [ isNothing <$> seek (length string + 1) bistream
+    , isNothing <$> seek (negate $ length string + 1) bistream
+    ]
+
 
 tests :: Tasty.TestTree
 tests = Tasty.testGroup "module Stream"
   [ Tasty.testGroup "QuickCheck"
     [ QuickCheck.testProperty "Split with newline is same as unlines function" prop_SplitWithNewlineIsUnlines
+    , QuickCheck.testProperty "Seeking to end reverses string" prop_SeekLengthReversesStream
+    , QuickCheck.testProperty "Cannot seek past end of stream" prop_CannotSeekPastEndOfStream
     ]
 
   , Tasty.testGroup "Regression" [ ]
