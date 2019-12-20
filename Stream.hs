@@ -7,6 +7,7 @@ module Stream
   , extract
   , fromAction
   , fromList
+  , mapStream
   , peek
   , prepend
   , seek
@@ -70,6 +71,13 @@ extract :: Applicative m => Stream m a -> m (Maybe (a, Stream m a))
 extract = \case
   Stream x xs -> Just . (x,) <$> xs
   EndOfStream -> pure Nothing
+
+mapStream :: Monad m => s -> (s -> a -> (s, [b])) -> Stream m a -> m (Stream m b)
+mapStream s f = \case
+  Stream x xs ->
+    let (s', ys) = f s x
+    in (fromList ys <> ) <$> (mapStream s' f =<< xs)
+  EndOfStream -> pure EndOfStream
 
 peek :: Applicative m => Stream m a -> m (Maybe a)
 peek = \case

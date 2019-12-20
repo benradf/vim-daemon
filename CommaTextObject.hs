@@ -95,7 +95,7 @@ tests = Tasty.testGroup "module CommaTextObject"
         -- this restriction into its type.
         putStrLn ""
         putStr "\x1b[36;40m"
-        --putStrLn . map unLocated =<< Stream.toList (bvBefore bv)
+        putStrLn . map unLocated =<< Stream.toList (bvBefore bv)
         putStr "\x1b[0m"
 
         putStrLn ""
