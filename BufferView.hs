@@ -25,10 +25,15 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.List (sortBy)
 import Data.Maybe (fromMaybe)
-import Data.Monoid (Endo(..))
+import Data.Monoid (Endo(..), (<>))
 import qualified Data.Vector as Vector
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Function ((&))
+import Data.Functor (void)
 import Data.Maybe (Maybe(..), listToMaybe)
+import qualified Streaming as S
+import qualified Streaming.Prelude as S
+import Streaming.Prelude (Of)
 
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
@@ -138,6 +143,36 @@ makeStream index advance compare getRange = do
             else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
 
         pure $ sortBy (\(i, _) (j, _) -> compare i j) elems
+
+
+makeStream2
+  :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
+  => a
+  -> (a -> (a, a))
+  -> (a -> a -> Ordering)
+  -> (a -> a -> m [(a, b)])
+  -> S.Stream (Of (a, b)) m ()
+
+makeStream2 index advance compare getRange = do
+  next <- liftIO $ newIORef $ Just index
+
+  loop next
+
+  where
+    loop next = S.effect $ liftIO (readIORef next) >>= \case
+      Nothing -> pure mempty
+      Just i -> do
+        let (j, i') = advance i
+        elems <- getRange (min i j) (max i j)
+
+        liftIO $ writeIORef next $
+          if map fst elems == [ min i j .. max i j ]
+            then Just i'
+            else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
+
+        let sortedElems = sortBy (\(i, _) (j, _) -> compare i j) elems
+
+        pure $ S.each sortedElems <> loop next
 
 
 -- TODO: Use `Enum a` instead of `Int` here?
@@ -292,7 +327,7 @@ exampleLines =
 
 
 --indexToLocation :: Integral a => a -> Location
---indexToLocation n = 
+--indexToLocation n =
 
 --data BufferView m = BufferView
 --  { bvLineCount :: Int

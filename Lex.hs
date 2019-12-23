@@ -41,6 +41,8 @@ import Data.Traversable (sequenceA)
 import Data.Semigroup ((<>))
 import Data.Tree (Tree(..))
 import qualified Data.Tree as Tree
+import qualified Streaming.Prelude as Streaming
+--import qualified Streaming as Streaming
 
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
