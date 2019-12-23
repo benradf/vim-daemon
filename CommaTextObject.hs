@@ -7,7 +7,9 @@ module CommaTextObject where
 import BufferView (BufferView(..), exampleLines, makeBufferViewFromLines)
 import Location (Located(..), Location(..), unLocated)
 import Lex
-import Stream (Stream)
+import qualified Streaming as S
+import qualified Streaming.Prelude as S
+import Streaming.Prelude (Of, Stream)
 import qualified Stream as Stream
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
@@ -18,8 +20,10 @@ import qualified Test.Tasty.QuickCheck as QuickCheck
 import Data.Functor.Identity (Identity(..))
 import qualified Data.List.NonEmpty as NonEmpty
 import Control.Applicative (Alternative(empty))
+import Control.Error.Util (hush)
 import Control.Monad.State (get, put)
 import Control.Monad.Trans.Class (MonadTrans(lift))
+import Control.Monad.Trans.Except (ExceptT(..), runExceptT)
 import Control.Monad.Trans.State (StateT, evalStateT)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 
@@ -36,7 +40,7 @@ data Token
 --  | LineFeed
   deriving (Eq, Show)
 
-lexer :: Monad m => StringStream m -> m (LocatedStream m Token)
+lexer :: Monad m => StringStream m -> LocatedStream m Token
 lexer = runLexer lexTree
   where
     lexTree :: LexTree Token
@@ -54,17 +58,17 @@ lexer = runLexer lexTree
 
 
 findBoundary
-  :: Monad m
+  :: (Monad m, Monoid r)
   => (Token -> Bool)
   -> (Token -> Token -> Bool)
-  -> Stream m (Located Token)
-  -> m (Maybe (Located Token))
+  -> Stream (Of (Located Token)) m r
+  -> m (Either r (Located Token))
 
 findBoundary isOpen matches stream =
-  evalStateT (runMaybeT step) ([], stream)
+  evalStateT (runExceptT step) ([], stream)
 
   where
-    step = get >>= traverse (MaybeT . lift . Stream.extract) >>= \case
+    step = get >>= traverse (ExceptT . lift . S.next) >>= \case
       (stack, (lt@(Located _ token), stream'))
         | isOpen token ->
             put (token : stack, stream') *> step
@@ -87,7 +91,7 @@ tests = Tasty.testGroup "module CommaTextObject"
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
         bv <- makeBufferViewFromLines (Location 7 50) exampleLines
-        tokens <- lexer (bvBefore bv) >>= Stream.toList
+        tokens <- S.toList_ $ lexer (bvBefore bv)
 
         -- TODO: Race condition here because of IORef?
         -- Keeping references to earlier parts of a Stream.
@@ -95,7 +99,7 @@ tests = Tasty.testGroup "module CommaTextObject"
         -- this restriction into its type.
         putStrLn ""
         putStr "\x1b[36;40m"
-        putStrLn . map unLocated =<< Stream.toList (bvBefore bv)
+        putStrLn . map unLocated =<< S.toList_ (bvBefore bv)
         putStr "\x1b[0m"
 
         putStrLn ""
@@ -122,7 +126,7 @@ tests = Tasty.testGroup "module CommaTextObject"
   ]
 
 testFindBoundary :: String -> Maybe (Located Token)
-testFindBoundary string = runIdentity $ findBoundary isOpen matches (runIdentity $ lexer $ Lex.makeStringStream string)
+testFindBoundary string = hush $ runIdentity $ findBoundary isOpen matches (lexer $ Lex.makeStringStream string)
   where
     isOpen = \case
       LeftParen -> True

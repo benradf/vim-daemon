@@ -28,6 +28,9 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text as T
+import qualified Streaming as S
+import qualified Streaming.Prelude as S
+import Streaming.Prelude (Of, Stream)
 
 import Data.Vector ((!), (!?))
 import qualified Data.Vector as V
@@ -47,7 +50,6 @@ import qualified CommaTextObject as CommaTextObject
 import qualified BufferView as BufferView
 import qualified Lex as Lex
 import qualified Location as Location
-import qualified Stream as Stream
 
 
 -- call ch_logfile('/tmp/channel.log', 'w')
@@ -116,7 +118,7 @@ runVimT output handler m = do
       cs <- liftIO $ readMVar csRef
       let handler (Callback callback) =
             case JSON.parseEither JSON.parseJSON payload of
-              Left e2 -> error e2
+              Left e2 -> error $ e2 ++ "\n" ++ "PAYLOAD:\n" ++ show payload
               Right x -> JSON.toJSON <$> runReaderT (callback x) csRef
       void $ case IntMap.lookup seqNum (csCallbacks cs) of
         Just callback -> handler callback  -- TODO: Need to remove callback from map.
@@ -219,8 +221,10 @@ main = do
         liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
         bv <- BufferView.makeBufferView loc $ \from to -> evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
         let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
-        tokensBefore <- Stream.toList =<< Stream.take 10 <$> lexer (BufferView.bvBefore bv)
-        tokensAfter <- Stream.toList =<< Stream.take 10 <$>  lexer (BufferView.bvAfter bv)
+        tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv
+        tokensAfter <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvAfter bv
+--      tokensBefore <- Stream.toList =<< Stream.take 10 <$> lexer (BufferView.bvBefore bv)
+--      tokensAfter <- Stream.toList =<< Stream.take 10 <$>  lexer (BufferView.bvAfter bv)
         pure $ JSON.object
           [ T.pack "line" .= l
           , T.pack "column" .= c
@@ -266,7 +270,7 @@ data Token
   deriving (Generic, JSON.ToJSON, Show)
 
 --lexer :: Monad m => Lex.StringStream m -> m [Location.Located Token]
-lexer :: Monad m => Lex.StringStream m -> m (Lex.LocatedStream m Token)
+lexer :: Monad m => Lex.StringStream m -> Lex.LocatedStream m Token
 lexer = Lex.runLexer lexTree
   where
     lexTree = Lex.makeLexTree $ Map.fromList

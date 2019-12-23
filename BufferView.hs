@@ -8,12 +8,11 @@ module BufferView
   , exampleLines
   , makeBufferView
   , makeBufferViewFromLines
-  , makeStreamPair
   , tests
   ) where
 
 import Location (LineNumber, Located(..), Location(..), Offset, unLocated)
-import Stream (Stream)
+--import Stream (Stream)
 import qualified Stream as Stream
 import Control.Arrow ((&&&))
 import Control.Monad (guard, join)
@@ -33,7 +32,7 @@ import Data.Functor (void)
 import Data.Maybe (Maybe(..), listToMaybe)
 import qualified Streaming as S
 import qualified Streaming.Prelude as S
-import Streaming.Prelude (Of)
+import Streaming.Prelude (Of, Stream)
 
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
@@ -42,18 +41,18 @@ import qualified Test.Tasty.QuickCheck as QuickCheck
 import Debug.Trace (trace)
 
 
-data Bistream m a b
-  = Bistream (Stream m a) (Stream m b)
-
-instance Functor m => Bifunctor (Bistream m) where
-  bimap f g (Bistream s t) = Bistream (f <$> s) (g <$> t)
+--data Bistream m a b
+--  = Bistream (Stream m a) (Stream m b)
+--
+--instance Functor m => Bifunctor (Bistream m) where
+--  bimap f g (Bistream s t) = Bistream (f <$> s) (g <$> t)
 
 type Line = String
 
 
 data BufferView m = BufferView
-  { bvBefore :: Stream m (Located Char)
-  , bvAfter :: Stream m (Located Char)
+  { bvBefore :: Stream (Of (Located Char)) m ()
+  , bvAfter :: Stream (Of (Located Char)) m ()
 -- TODO: Add a function to request cached lines to BufferView.
   }
 
@@ -68,21 +67,38 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
-  let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $ f $
-        zipWith (Located . Location n) [ 1 .. length line + 1 ] $ line ++ "\n"
+--  let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $ f $
+--        zipWith (Located . Location n) [ 1 .. length line + 1 ] $ line ++ "\n"
 
-  lhs <- makeStream lineNum (advance 2 pred &&& advance 3 pred) (flip compare) (getLinesViaCache cache)
-  rhs <- makeStream lineNum (advance 2 succ &&& advance 3 pred) compare (getLinesViaCache cache)
+  -- Stream (Of (LineNumber, Line)) m ()
+  -- Stream (Of [Located Char    ]) m ()
+  -- Stream (Of (Located Char     ) m ()
+  let lhs = makeStream lineNum (advance 2 pred &&& advance 3 pred) (flip compare) (getLinesViaCache cache)
+      rhs = makeStream lineNum (advance 2 succ &&& advance 3 succ) compare (getLinesViaCache cache)
 
-  bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
-              pure (lhs, rhs)
-              --makeStreamPair lineNum (getLinesViaCache cache)
+{- λ :t map (\(i, (j, c)) -> Located (Location i j) c) . traverse (zip [ 1 .. ])
+   map (\(i, (j, c)) -> Located (Location i j) c) . traverse (zip [ 1 .. ])
+     :: (Location.LineNumber, [a]) -> [Located a]
 
-  (before, after) <- fromMaybe bistream <$> Stream.seek (columnNum - 1) bistream
+   λ :t map (uncurry ($)) . traverse (zip [ 1 .. ]) . first (uncurry . fmap Located . Location)
+   map (uncurry ($)) . traverse (zip [ 1 .. ]) . first (uncurry . fmap Located . Location)
+     :: (Location.LineNumber, [b]) -> [Located b]
+-}
+
+  let mkLocated (i, (j, char)) = Located (Location i j) char
+  let toCharStream f = S.concat . S.map (map mkLocated . f . traverse (zip [ 1 .. ]))
+
+
+--  bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
+--              pure (lhs, rhs)
+--              --makeStreamPair lineNum (getLinesViaCache cache)
+
+  --(before, after) <- fromMaybe bistream <$> Stream.seek (columnNum - 1) bistream
+  -- TODO: Implement seek again
 
   pure $ BufferView
-    { bvBefore = before
-    , bvAfter = after
+    { bvBefore = toCharStream reverse lhs
+    , bvAfter = toCharStream reverse rhs
     }
 
   where
@@ -118,42 +134,42 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 --          pure elems
 
 
+--makeStream
+--  :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
+--  => a
+--  -> (a -> (a, a))
+--  -> (a -> a -> Ordering)
+--  -> (a -> a -> m [(a, b)])
+--  -> m (Stream m (a, b))
+--
+--makeStream index advance compare getRange = do
+--  next <- liftIO $ newIORef $ Just index
+--
+--  Stream.fromAction $
+--    liftIO (readIORef next) >>= \case
+--      Nothing -> pure []
+--
+--      Just i -> do
+--        let (j, i') = advance i
+--        elems <- getRange (min i j) (max i j)
+--
+--        liftIO $ writeIORef next $
+--          if map fst elems == [ min i j .. max i j ]
+--            then Just i'
+--            else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
+--
+--        pure $ sortBy (\(i, _) (j, _) -> compare i j) elems
+
+
 makeStream
   :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
   => a
   -> (a -> (a, a))
   -> (a -> a -> Ordering)
   -> (a -> a -> m [(a, b)])
-  -> m (Stream m (a, b))
+  -> Stream (Of (a, b)) m ()
 
 makeStream index advance compare getRange = do
-  next <- liftIO $ newIORef $ Just index
-
-  Stream.fromAction $
-    liftIO (readIORef next) >>= \case
-      Nothing -> pure []
-
-      Just i -> do
-        let (j, i') = advance i
-        elems <- getRange (min i j) (max i j)
-
-        liftIO $ writeIORef next $
-          if map fst elems == [ min i j .. max i j ]
-            then Just i'
-            else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
-
-        pure $ sortBy (\(i, _) (j, _) -> compare i j) elems
-
-
-makeStream2
-  :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
-  => a
-  -> (a -> (a, a))
-  -> (a -> a -> Ordering)
-  -> (a -> a -> m [(a, b)])
-  -> S.Stream (Of (a, b)) m ()
-
-makeStream2 index advance compare getRange = do
   next <- liftIO $ newIORef $ Just index
 
   loop next
@@ -176,50 +192,50 @@ makeStream2 index advance compare getRange = do
 
 
 -- TODO: Use `Enum a` instead of `Int` here?
-makeStreamPair
-  :: MonadIO m
-  => Int
-  -> (Int -> Int -> m [(Int, a)])
-  -> m (Stream m (Int, a), Stream m (Int, a))
-
-makeStreamPair index getRange = do
-
-  nextAfter <- liftIO $ newIORef $ index
-  nextBefore <- liftIO $ newIORef $ index - 1
-
-  let
-    getNext2 next advance =
-      liftIO (readIORef next) >>= \case
-        Nothing -> pure []
-        Just i -> do
-          let j = pred $ advance i
-          elems <- getRange i j
-          liftIO $ writeIORef next $
-            if map fst elems == [ i .. j ]
-              then Just $ succ j
-              else Nothing
-          pure elems
-
-    getAfter = do
-      n <- liftIO $ readIORef nextAfter
-      elems <- getRange n (n + chunkSize - 1)
-      liftIO $ writeIORef nextAfter $ n + length elems
-      pure elems
-
-    getBefore = do
-      n <- liftIO $ readIORef nextBefore
-      elems <- getRange (n - chunkSize + 1) n
-      liftIO $ writeIORef nextBefore $ n - length elems
-      pure $ reverse elems
-
--- TODO: Fix negative range problems etc
-
-  (,)
-    <$> Stream.fromAction getBefore
-    <*> Stream.fromAction getAfter
-
-  where
-    chunkSize = 5
+--makeStreamPair
+--  :: MonadIO m
+--  => Int
+--  -> (Int -> Int -> m [(Int, a)])
+--  -> m (Stream m (Int, a), Stream m (Int, a))
+--
+--makeStreamPair index getRange = do
+--
+--  nextAfter <- liftIO $ newIORef $ index
+--  nextBefore <- liftIO $ newIORef $ index - 1
+--
+--  let
+--    getNext2 next advance =
+--      liftIO (readIORef next) >>= \case
+--        Nothing -> pure []
+--        Just i -> do
+--          let j = pred $ advance i
+--          elems <- getRange i j
+--          liftIO $ writeIORef next $
+--            if map fst elems == [ i .. j ]
+--              then Just $ succ j
+--              else Nothing
+--          pure elems
+--
+--    getAfter = do
+--      n <- liftIO $ readIORef nextAfter
+--      elems <- getRange n (n + chunkSize - 1)
+--      liftIO $ writeIORef nextAfter $ n + length elems
+--      pure elems
+--
+--    getBefore = do
+--      n <- liftIO $ readIORef nextBefore
+--      elems <- getRange (n - chunkSize + 1) n
+--      liftIO $ writeIORef nextBefore $ n - length elems
+--      pure $ reverse elems
+--
+---- TODO: Fix negative range problems etc
+--
+--  (,)
+--    <$> Stream.fromAction getBefore
+--    <*> Stream.fromAction getAfter
+--
+--  where
+--    chunkSize = 5
 
 
 newtype ReversedString = ReversedString String

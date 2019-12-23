@@ -41,8 +41,9 @@ import Data.Traversable (sequenceA)
 import Data.Semigroup ((<>))
 import Data.Tree (Tree(..))
 import qualified Data.Tree as Tree
-import qualified Streaming.Prelude as Streaming
---import qualified Streaming as Streaming
+import qualified Streaming as S
+import qualified Streaming.Prelude as S
+import Streaming.Prelude (Of, Stream)
 
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
@@ -54,8 +55,6 @@ import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Tree.Pretty as Pretty
 
 import Location (Located(..), Location(..), makeLocatedString, unLocated)
-import Stream (Stream(..))
-import qualified Stream as Stream
 
 
 {-
@@ -122,23 +121,26 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty = map (first NonEmpty.fromList)
 
 
-type LocatedStream m a = Stream m (Located a)
+--type LocatedStream m a = Stream m (Located a)
+type LocatedStream m a = Stream (Of (Located a)) m ()
 
-type StringStream m = Stream m (Located Char)
+--type StringStream m = Stream m (Located Char)
+type StringStream m = Stream (Of (Located Char)) m ()
 
 makeStringStream :: String -> StringStream Identity
-makeStringStream = Stream.fromList . makeLocatedString
+makeStringStream = S.each . makeLocatedString
 
 
-runLexer :: Monad m => LexTree a -> StringStream m -> m (LocatedStream m a)
+runLexer :: Monad m => LexTree a -> StringStream m -> LocatedStream m a
 runLexer tree stream =
-  Stream.extract stream >>= \case
-    Nothing -> pure mempty
+  S.effect $ S.next stream >>= \case
+    Left _ -> pure mempty
 
-    Just (char, stream') ->
-      runMaybeT (runStateT attempt (pure tree, stream)) >>= \case
-        Just (token, (_, stream')) ->
-          pure $ Stream (token <$ char) (runLexer tree stream')
+    Right (char, stream') ->
+      runMaybeT (runStateT attempt (pure tree, stream)) <&> \case
+        Just (token, (_, stream')) -> do
+          S.yield (token <$ char)
+          runLexer tree stream'  -- TODO: Factor out this line since it's in both branches of case
 
         Nothing ->
           runLexer tree stream'
@@ -146,14 +148,14 @@ runLexer tree stream =
   where
     attempt :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
     attempt = gets fst >>= \case
-      [] -> empty
+      [] -> empty  -- No more potential tokens
       trees -> step <|> yielded trees
 
     step :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
-    step = (join $ gets $ lift . lift . traverse Stream.extract) >>= \case
-      (trees, Just (Located _ c, cs)) ->
+    step = (join $ gets $ lift . lift . traverse S.next) >>= \case
+      (trees, Right (Located _ c, cs)) ->
         put (runLexTree c =<< trees, cs) *> attempt
-      (_, Nothing) -> empty
+      (_, Left _) -> empty  -- End of stream
 
     yielded trees = lift
       $ hoistMaybe $ listToMaybe
@@ -180,7 +182,7 @@ lexTree
   $ tokens
 
 lexer :: String -> [Located Token]
-lexer = runIdentity . Stream.toList . runIdentity . runLexer lexTree . makeStringStream
+lexer = runIdentity . S.toList_ . runLexer lexTree . makeStringStream
 
 
 -- Idea For Another Vim Service / Plugin:
@@ -214,14 +216,14 @@ tests = Tasty.testGroup "module Lex"
     [ HUnit.testCase "Extra character consumed when one token is a prefix of another" $ do
         let string = "<-=>"
         let lexTree = makeLexTree $ Map.fromList $ join (,) <$> [ "<-", "<--", "=>" ]
-        let result = concat $ runIdentity $ Stream.toList $ unLocated <$> runIdentity (runLexer lexTree (makeStringStream string))
+        let result = concat $ map unLocated $ runIdentity $ S.toList_ (runLexer lexTree (makeStringStream string))
         HUnit.assertEqual "Lexed correctly" string result
     ]
 
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Infinite stream is lexed lazily" $ do
-        infiniteTokenStream <- runLexer lexTree =<< Stream.fromAction (pure [ Located (Location 1 1) 'X' ])
-        someTokens <- Stream.toList $ Stream.take 10 infiniteTokenStream
+        let infiniteTokenStream = runLexer lexTree $ S.repeat $ Located (Location 1 1) 'X'
+        someTokens <- S.toList_ $ S.take 10 infiniteTokenStream
         HUnit.assertEqual "" (replicate 10 X) (unLocated <$> someTokens)
     ]
   ]
