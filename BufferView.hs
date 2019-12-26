@@ -11,12 +11,13 @@ module BufferView
   , tests
   ) where
 
-import Location (LineNumber, Located(..), Location(..), Offset, unLocated)
+import Location (ColumnNumber(..), LineNumber(..), Located(..), Location(..), Offset, unLocated)
 --import Stream (Stream)
 import qualified Stream as Stream
 import Control.Arrow ((&&&))
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO(..))
+import Data.Coerce (coerce)
 import Data.Bifunctor (Bifunctor(..), bimap)
 import Data.Foldable (foldMap)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
@@ -105,60 +106,23 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
     advance n = appEndo . foldMap Endo . replicate n
 
     getLinesViaCache cache from to = do
-      cached <- lookupRange from to <$> liftIO (readIORef cache)
+      let fromKey = coerce from
+          toKey = coerce to
 
-      if length cached == from - to + 1
-        then pure cached
+      cached <- lookupRange fromKey toKey <$> liftIO (readIORef cache)
+
+      if length cached == fromKey - toKey + 1
+        then pure $ first coerce <$> cached
         else do
           lines <- getLines from to
-          liftIO $ modifyIORef cache $ addLinesToCache lines
+          liftIO $ modifyIORef cache $ addLinesToCache $ first coerce <$> lines
           pure lines
 
-    lookupRange from to map =
-      IntMap.toAscList $ fst $ IntMap.split (to + 1) $ snd $ IntMap.split from $ map
+    lookupRange fromKey toKey map =
+      IntMap.toAscList $ fst $ IntMap.split (toKey + 1) $ snd $ IntMap.split fromKey $ map
 
     addLinesToCache lines map =
       IntMap.fromAscList lines `IntMap.union` map
-
-
---    getNext next advance =
---      liftIO (readIORef next) >>= \case
---        Nothing -> pure []
---        Just i -> do
---          let j = pred $ advance i
---          elems <- getRange i j
---          liftIO $ writeIORef next $
---            if map fst elems == [ i .. j ]
---              then Just $ succ j
---              else Nothing
---          pure elems
-
-
---makeStream
---  :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
---  => a
---  -> (a -> (a, a))
---  -> (a -> a -> Ordering)
---  -> (a -> a -> m [(a, b)])
---  -> m (Stream m (a, b))
---
---makeStream index advance compare getRange = do
---  next <- liftIO $ newIORef $ Just index
---
---  Stream.fromAction $
---    liftIO (readIORef next) >>= \case
---      Nothing -> pure []
---
---      Just i -> do
---        let (j, i') = advance i
---        elems <- getRange (min i j) (max i j)
---
---        liftIO $ writeIORef next $
---          if map fst elems == [ min i j .. max i j ]
---            then Just i'
---            else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
---
---        pure $ sortBy (\(i, _) (j, _) -> compare i j) elems
 
 
 makeStream
@@ -247,7 +211,7 @@ offsetToLocation lines offset = do
   (lineNumber, lineOffset) <- listToMaybe $ dropWhile ((<= offset) . snd) lineIndexPairs
   pure $ Location
     (lineNumber)
-    (offset - snd (lineIndexPairs !! (lineNumber - 1)) + 1)
+    (coerce $ offset - snd (lineIndexPairs !! (coerce lineNumber - 1)) + 1)
 
 
 tests :: Tasty.TestTree
@@ -290,7 +254,7 @@ makeBufferViewFromLines cursorLocation lines =
     let (from, to) = (max i 1, max j 0)
     trace ("\x1b[1;33m[ " ++ show from ++ " .. " ++ show to ++ " ]\x1b[0m") (pure ())
     guard (from <= to)
-    take (to - from + 1) $ drop (from - 1) $ zip [ 1 .. ] lines
+    take (coerce $ to - from + 1) $ drop (coerce $ from - 1) $ zip [ 1 .. ] lines
 
 
 -- TODO: Tag lines and chars with correct Located Location.

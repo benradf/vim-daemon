@@ -19,6 +19,7 @@ import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Types as JSON
 import qualified Data.ByteString.Lazy.Char8 as B
+import Data.Coerce (coerce)
 import Data.Functor
 import Data.Functor.Identity
 import Data.IORef
@@ -219,7 +220,8 @@ main = do
       defaultHandler2 value = do
         loc@(Location.Location l c) <- getLocation
         liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
-        bv <- BufferView.makeBufferView loc $ \from to -> evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
+        bv <- BufferView.makeBufferView loc $ \from to ->
+                evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
         let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
         tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv
         tokensAfter <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvAfter bv

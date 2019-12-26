@@ -1,6 +1,9 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Location
-  ( ColumnNumber
-  , LineNumber
+  ( ColumnNumber(..)
+  , LineNumber(..)
   , Located(..)
   , Location(..)
   , Range(..)
@@ -10,17 +13,50 @@ module Location
   , unLocated
   ) where
 
+import Data.Coerce (coerce)
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
 import qualified Test.QuickCheck as QuickCheck
 
+import qualified Data.Aeson as JSON
+import qualified Data.Aeson.Types as JSON
 
 type Offset = Int
 
-type LineNumber = Int
+--type LineNumber = Int
 
-type ColumnNumber = Int
+newtype LineNumber = LineNumber Int
+  deriving newtype (Num, Show, JSON.FromJSON, JSON.ToJSON)
+  deriving stock (Eq, Ord)
+
+instance Enum LineNumber where
+  fromEnum = coerce
+  toEnum = positive LineNumber
+
+instance Bounded LineNumber where
+  minBound = LineNumber 1
+  maxBound = LineNumber maxBound
+
+newtype ColumnNumber = ColumnNumber Int
+  deriving newtype (Num, Show, JSON.FromJSON, JSON.ToJSON)
+  deriving stock (Eq, Ord)
+
+instance Enum ColumnNumber where
+  fromEnum = coerce
+  toEnum = positive ColumnNumber
+
+instance Bounded ColumnNumber where
+  minBound = ColumnNumber 1
+  maxBound = ColumnNumber maxBound
+
+positive :: (Int -> a) -> Int -> a
+positive f n
+    | n < 1 = error "LineNumber.toEnum: bad argument"
+    | otherwise = f n
+
+
+--type ColumnNumber = Int
 
 data Location = Location LineNumber ColumnNumber
   deriving (Eq, Show)
