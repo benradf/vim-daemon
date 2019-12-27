@@ -202,7 +202,7 @@ main = do
       defaultHandler2 value = do
         loc@(Location.Location l c) <- getLocation
         liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
-        bv <- BufferView.makeBufferView loc $ \from to -> fmap (zip [ from .. to ]) $
+        bv <- BufferView.makeBufferView 2 loc $ \from to -> fmap (zip [ from .. to ]) $
                 evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
         let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
         tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv

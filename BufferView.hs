@@ -11,11 +11,12 @@ module BufferView
   , tests
   ) where
 
+import Control.Arrow ((&&&))
 import Control.Monad (guard)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.IORef (modifyIORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import qualified Data.IntMap as IntMap
 import Data.List (sort)
 import Data.Maybe (Maybe(..), listToMaybe)
@@ -27,7 +28,7 @@ import qualified Streaming.Prelude as S
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 
-import Location (ColumnNumber(..), LineNumber(..), Located(..), Location(..), Offset)
+import Location (ColumnNumber(..), LineNumber(..), Located(..), Location(..), Offset, unLocated)
 
 
 --data Bistream m a b
@@ -46,18 +47,19 @@ data BufferView m = BufferView
   }
 
 
-makeBufferView
-  :: MonadIO m
-  => Location
-  -> (LineNumber -> LineNumber -> m [(LineNumber, Line)])  -- expects: i <= j
-  -> m (BufferView m)
+type GetLines m = LineNumber -> LineNumber -> m [(LineNumber, Line)]  -- expects: i <= j
 
-makeBufferView cursor@(Location lineNum columnNum) getLines = do
+
+type ChunkSize = Int
+
+
+makeBufferView :: MonadIO m => ChunkSize -> Location -> GetLines m -> m (BufferView m)
+makeBufferView chunkSize cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
-  let lhs = makeStream lineNum (advance 2 pred minBound) ((fmap . fmap . fmap) reverse . flip $ getLinesViaCache cache)
-      rhs = makeStream lineNum (advance 5 succ maxBound) (getLinesViaCache cache)
+  let lhs = makeStream lineNum (advance chunkSize pred minBound) ((fmap . fmap . fmap) reverse . flip $ getLinesViaCache cache)
+      rhs = makeStream lineNum (advance chunkSize succ maxBound) (getLinesViaCache cache)
 
   let mkLocated (i, (j, char)) = Located (Location i j) char
   let toCharStream f = S.concat . S.map (map mkLocated . f . traverse (zip [ 1 .. ] . (++ "\n")))
@@ -75,17 +77,15 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
       | n == 1 = (i, Just (step i))
       | otherwise = advance (n - 1) step end (step i)
 
-    getLinesViaCache cache from to = do  -- expects: i <= j
-      --trace ("getLinesViaCache(from = " ++ show from ++ ", to = " ++ show to ++ ")") (pure ())
-
+    getLinesViaCache cache from to = do
       let fromKey = coerce from
           toKey = coerce to
 
       cached <- lookupRange fromKey toKey <$> liftIO (readIORef cache)
 
       if length cached == toKey - fromKey + 1
-        then {-trace ("  \x1b[0;32mcache hit\x1b[0m: cached = " ++ show cached ++ ", fromKey = " ++ show fromKey ++ ", toKey = " ++ show toKey) $ -} pure $ first coerce <$> cached
-        else {-trace ("  \x1b[0;31mcache miss\x1b[0m") $-} do
+        then pure $ first coerce <$> cached
+        else do
           lines <- getLines from to
           liftIO $ modifyIORef cache $ addLinesToCache $ first coerce <$> lines
           pure lines
@@ -98,11 +98,11 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
 
 makeStream
-  :: (Enum a, Eq a, Ord a, MonadIO m, Show a)  --remove `Show a`
+  :: (Enum a, Eq a, Ord a, MonadIO m)
   => a
   -> (a -> (a, Maybe a))
-  -> (a -> a -> m [(a, b)])  -- no expectation on ordering or i and j
-  -> Stream (Of (a, b)) m ()  -- stream ends when returned lines not exactly those requested
+  -> (a -> a -> m [(a, b)])
+  -> Stream (Of (a, b)) m ()
 
 makeStream index advance getRange = do
   next <- liftIO $ newIORef $ Just index
@@ -122,7 +122,6 @@ makeStream index advance getRange = do
             else Nothing
 
         pure $ S.each elems <> loop next
-
 
 
 
@@ -156,24 +155,50 @@ tests = Tasty.testGroup "module BufferView"
         HUnit.assertEqual "" Nothing (fromOffset 32)
         HUnit.assertEqual "" Nothing (fromOffset 99)
 
-    {-, HUnit.testCase "Stream lines before and after cursor" $ do
-        bv <- makeBufferViewFromLines (Location 14 21) exampleLines
-        beforeLines <- Stream.toList $ unLocated <$> bvBefore bv
-        afterLines <- Stream.toList $  unLocated <$> bvAfter bv
-  -- TODO: deal with fact that we are now streaming CharS instead of LineS
-        HUnit.assertEqual "" (unlines exampleLines) ((reverse beforeLines) ++ afterLines) -}
+    , HUnit.testCase "Streaming makes chunked requests for lines" $ do
+        (requests, getLines) <- mockGetLines 20
+        let location = Location (LineNumber 12) (ColumnNumber 1)
+        bv <- makeBufferView 5 location getLines
+        before <- map unLocated <$> S.toList_ (bvBefore bv)
+        HUnit.assertEqual "before string incorrect"
+          (reverse $ concat $ map (\n -> show n ++ "\n") [ 1 .. 12 ])
+          before
+        after <- map unLocated <$> S.toList_ (bvAfter bv)
+        HUnit.assertEqual "after string incorrect"
+          (concat $ map (\n -> show n ++ "\n") [ 12 .. 20 ])
+          after
+        HUnit.assertEqual "requested lines incorrect"
+          [ (8, 12), (3, 7), (1, 2), (12, 16), (17, 21) ]
+          =<< readIORef requests
     ]
   ]
 
 
+mockGetLines :: MonadIO m => Int -> m (IORef [(LineNumber, LineNumber)], GetLines m)
+mockGetLines lineCount = do
+  requestedRanges <- liftIO $ newIORef []
+
+  pure $ (requestedRanges,) $ \i j ->
+    if i < 0 || j < 0 
+      then pure []
+      else do
+        let i' = max i 1
+            j' = min j (coerce lineCount)
+        liftIO $ modifyIORef requestedRanges (<> [(i, j)])
+        pure $ (id &&& show) <$> [ i' .. j' ]
+
+
+
+
 makeBufferViewFromLines
   :: MonadIO m
-  => Location
+  => ChunkSize
+  -> Location
   -> [Line]
   -> m (BufferView m)
 
-makeBufferViewFromLines cursorLocation lines =
-  makeBufferView cursorLocation $ \i j -> pure $ do
+makeBufferViewFromLines chunkSize cursorLocation lines =
+  makeBufferView chunkSize cursorLocation $ \i j -> pure $ do
     trace ("\x1b[33m[ " ++ show i ++ " .. " ++ show j ++ " ]\x1b[0m") (pure ())
     let (from, to) = (clamp (i :: LineNumber), clamp (j :: LineNumber))
     guard $ coerce i <= length lines && coerce j >= (1 :: Int)
@@ -182,20 +207,6 @@ makeBufferViewFromLines cursorLocation lines =
   where
     clamp n = coerce n `max` 1 `min` length lines
 
-
--- TODO: Tag lines and chars with correct Located Location.
---makeStreamPairFromLines
---  :: MonadIO m
---  => LineNumber
---  -> [String]
---  -> m (Stream m Line, Stream m Line)
---
---makeStreamPairFromLines lineNum lines =
---  fmap (join bimap $ fmap snd) $
---    makeStreamPair lineNum $ \i j -> pure $ do
---      let (from, to) = (max i 1, max j 0)
---        guard (from <= to)
---      take (to - from + 1) $ drop (from - 1) lines
 
 exampleLines :: [String]
 exampleLines =
@@ -230,75 +241,3 @@ exampleLines =
   , "{- 29 -}   where"
   , "{- 30 -}     chunkSize = 5"
   ]
-
-
---indexToLocation :: Integral a => a -> Location
---indexToLocation n =
-
---data BufferView m = BufferView
---  { bvLineCount :: Int
---  , bvCursor :: Location
---  , bvLinesBefore :: Stream m String
---  , bvLinesAfter :: Stream m String
---  }
-
-
---data Selection a
---  = Selection [a] (Context a)
---
---data Context a
---  = NoContext
---  | Context [a] (Context a) [a]
-
-
---data BufOp
-
-
-
---data Selection m a
---  = Selection (Stream m a) [a] (Stream m a)
-
-
---   ( x -> ( a -> b ) -> c -> ( d -> e -> f ) )
-
-{-
-tokens =
-  [ ("->", Arrow)
-  , ("(", LeftParen)
-  , (")", RightParen)
-  , ("::", TypeAnnotation)
-  , ("\n", NewLine)
-  ]
-
-tokenize :: [Char] -> [Token]
-
-data Node
-  = Leaf Range Range -- inner and outer ranges
-  | Node [Node]
-
-data Context
-  = Root
-  | Context [Node] Context [Node]
-
-data Selection
-  = Selection [Node] Context
-
-extendLeft :: Selection -> Maybe Selection
-extendLeft (Selection _ Root) = Nothing
-extendLeft (Selection nodes (Context [] _ _)) = Nothing
-extendLeft (Selection nodes (Context (l : ls) c rs)) =
-  Just $ Selection (l : nodes) (Context ls c rs)
-
-extendUp :: Selection -> Maybe Selection
-extendUp (Selection _ Root) = Nothing
-extendUp (Selection nodes (Context ls c rs)) =
-  Just $ Selection (reverse ls ++ nodes ++ rs) c
--}
-
-
-
-{-
-    λ :t join $ join bitraverse Stream.toList <$> makeStreamPair (\_ _ -> pure []) (Location 1 1)
-    join $ join bitraverse Stream.toList <$> makeStreamPair (\_ _ -> pure []) (Location 1 1)
-      :: MonadIO m => m ([Line], [Line])
--}

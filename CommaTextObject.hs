@@ -21,7 +21,7 @@ import qualified Test.Tasty.HUnit as HUnit
 
 import BufferView (BufferView(..), exampleLines, makeBufferViewFromLines)
 import Lex
-import Location (Located(..), Location(..), unLocated)
+import Location (Located(..), Location(..))
 
 data Token
   = Comma
@@ -85,27 +85,59 @@ tests = Tasty.testGroup "module CommaTextObject"
 
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
-        bv <- makeBufferViewFromLines (Location 7 50) exampleLines
-        tokens <- S.toList_ $ lexer (bvBefore bv)
-        tokens2 <- S.toList_ $ lexer (bvAfter bv)
+        bv <- makeBufferViewFromLines 2 (Location 7 50) exampleLines
+        streamBefore <- memoize (bvBefore bv)
+        HUnit.assertEqual "tokens before incorrect"
+          [ Located (Location 7 62) RightParen
+          , Located (Location 7 41) LeftParen
+          , Located (Location 7 8) RightBrace
+          , Located (Location 7 1) LeftBrace
+          , Located (Location 6 8) RightBrace
+          , Located (Location 6 1) LeftBrace
+          , Located (Location 5 46) RightParen
+          , Located (Location 5 31) Comma
+          , Located (Location 5 17) LeftParen
+          , Located (Location 5 8) RightBrace
+          , Located (Location 5 1) LeftBrace
+          , Located (Location 4 8) RightBrace
+          , Located (Location 4 1) LeftBrace
+          , Located (Location 3 52) RightParen
+          , Located (Location 3 51) RightBox
+          , Located (Location 3 46) LeftBox
+          , Located (Location 3 15) LeftParen
+          , Located (Location 3 8) RightBrace
+          , Located (Location 3 1) LeftBrace
+          , Located (Location 2 8) RightBrace
+          , Located (Location 2 1) LeftBrace
+          , Located (Location 1 8) RightBrace
+          , Located (Location 1 1) LeftBrace
+          ]
+          =<< S.toList_ (lexer streamBefore)
+
+        tokensBefore <- S.toList_ $ lexer streamBefore
+
+
+        --tokensAfter <- S.toList_ $ lexer (bvAfter bv)
+
+
 
         -- TODO: Race condition here because of IORef?
         -- Keeping references to earlier parts of a Stream.
         -- Need to make a Stream usable only once by encoding
         -- this restriction into its type.
-        putStrLn ""
-        putStr "\x1b[36;40m"
-        putStrLn . map unLocated =<< S.toList_ (bvBefore bv)
-        putStr "\x1b[0m"
-        putStrLn ""
-        mapM_ (putStrLn . show) tokens
+--        putStrLn ""
+--        putStr "\x1b[36;40m"
+--        putStrLn . map unLocated =<< S.toList_ (bvBefore bv)
+--        putStr "\x1b[0m"
+--        putStrLn ""
+        --mapM_ (putStrLn . show) tokensBefore
 
-        putStrLn ""
-        putStr "\x1b[35;40m"
-        putStrLn . map unLocated =<< S.toList_ (bvAfter bv)
-        putStr "\x1b[0m"
-        putStrLn ""
-        mapM_ (putStrLn . show) tokens2
+--        putStrLn ""
+--        putStr "\x1b[35;40m"
+--        putStrLn . map unLocated =<< S.toList_ (bvAfter bv)
+--        putStr "\x1b[0m"
+--        putStrLn ""
+--        mapM_ (putStrLn . show) tokensAfter
 
         -- TODO: Finish this unit test
         -- Should probably assert that all the token locations are correct.
