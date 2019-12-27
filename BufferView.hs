@@ -12,7 +12,8 @@ module BufferView
   ) where
 
 import Control.Arrow ((&&&))
-import Control.Monad (guard)
+import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
+import Control.Monad (guard, when)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
@@ -21,6 +22,7 @@ import qualified Data.IntMap as IntMap
 import Data.List (sort)
 import Data.Maybe (Maybe(..), listToMaybe)
 import Data.Monoid ((<>))
+import qualified Data.Vector.Mutable as MVector
 import Debug.Trace (trace)
 import qualified Streaming as S
 import Streaming.Prelude (Of, Stream)
@@ -64,9 +66,12 @@ makeBufferView chunkSize cursor@(Location lineNum columnNum) getLines = do
   let mkLocated (i, (j, char)) = Located (Location i j) char
   let toCharStream f = S.concat . S.map (map mkLocated . f . traverse (zip [ 1 .. ] . (++ "\n")))
 
+  before <- memoizeStream $ toCharStream reverse lhs
+  after <- memoizeStream $ toCharStream id rhs
+
   pure $ BufferView
-    { bvBefore = toCharStream reverse lhs
-    , bvAfter = toCharStream id rhs
+    { bvBefore = before
+    , bvAfter = after
     }
 
   where
@@ -122,6 +127,39 @@ makeStream index advance getRange = do
             else Nothing
 
         pure $ S.each elems <> loop next
+
+
+memoizeStream :: MonadIO m => Stream (Of a) m r -> m (Stream (Of a) m r)
+memoizeStream stream = liftIO $ do
+
+  vector <- MVector.new 1
+  MVector.write vector 0 (Left stream)
+
+  memo 0 <$> newMVar vector
+
+  where
+    memo i vectorRef = S.effect $ do
+      vector <- liftIO $ readMVar vectorRef
+      liftIO (MVector.read vector i) >>= \case
+
+        Left stream ->
+          S.next stream >>= \case
+            Left r -> pure (pure r)
+
+            Right (x, stream') -> liftIO $ do
+              let len = MVector.length vector
+              when (i + 1 == len) $
+                modifyMVar_ vectorRef $ flip MVector.grow len
+
+              vector <- readMVar vectorRef
+              MVector.write vector i (Right x)
+              MVector.write vector (i + 1) (Left stream')
+
+              pure $ memo i vectorRef
+
+        Right x -> pure $ do
+          S.yield x
+          memo (i + 1) vectorRef
 
 
 

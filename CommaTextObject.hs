@@ -86,7 +86,6 @@ tests = Tasty.testGroup "module CommaTextObject"
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
         bv <- makeBufferViewFromLines 2 (Location 7 50) exampleLines
-        streamBefore <- memoize (bvBefore bv)
         HUnit.assertEqual "tokens before incorrect"
           [ Located (Location 7 62) RightParen
           , Located (Location 7 41) LeftParen
@@ -112,9 +111,9 @@ tests = Tasty.testGroup "module CommaTextObject"
           , Located (Location 1 8) RightBrace
           , Located (Location 1 1) LeftBrace
           ]
-          =<< S.toList_ (lexer streamBefore)
+          =<< S.toList_ (lexer $ bvBefore bv)
 
-        tokensBefore <- S.toList_ $ lexer streamBefore
+        tokensBefore <- S.toList_ $ lexer $ bvBefore bv
 
 
         --tokensAfter <- S.toList_ $ lexer (bvAfter bv)

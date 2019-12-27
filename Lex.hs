@@ -9,37 +9,27 @@ module Lex
   , makeLexTree
   , makeLocatedString
   , makeStringStream
-  , memoize
   , runLexer
   , tests
   , unLocated
   ) where
 
-import Debug.Trace (trace)
-
 import Control.Applicative (Alternative(..), (<|>))
 import Control.Arrow ((&&&))
-import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar)
 import Control.Error.Util (hoistMaybe)
-import Control.Monad (join, when)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad (join)
 import Control.Monad.State (gets, put)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (StateT(..))
 import Data.Bifunctor (bimap, first)
-import Data.Foldable (traverse_)
 import Data.Functor.Identity (Identity(..))
-import Data.IORef (newIORef)
 import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (listToMaybe, maybeToList, mapMaybe)
-import Data.Vector.Mutable (MVector)
-import qualified Data.Vector.Mutable as MVector
-import GHC.Prim (RealWorld)
 import qualified Streaming as S
 import Streaming.Prelude (Of, Stream)
 import qualified Streaming.Prelude as S
@@ -122,73 +112,6 @@ type StringStream m = Stream (Of (Located Char)) m ()
 
 makeStringStream :: String -> StringStream Identity
 makeStringStream = S.each . makeLocatedString
-
-
-memoize :: MonadIO m => Stream (Of a) m r -> m (Stream (Of a) m r)
-memoize stream = do
-
-  memRef <- liftIO $ newMVar =<< MVector.new 1
-  mem <- liftIO $ readMVar memRef
-  liftIO $ MVector.write mem 0 (Left stream)
-
-  pure $ loop 0 memRef
-
-  where
-    loop
-      :: MonadIO m
-      => Int
-      -> MVar (MVector RealWorld (Either (Stream (Of a) m r) a))
-      -> Stream (Of a) m r
-
-    loop i memRef = S.effect $ do
-      mem <- liftIO $ readMVar memRef
-      liftIO (MVector.read mem i) >>= \case
-
-        Left stream -> {-trace ("Left @ " ++ show i) $ -}
-          S.next stream >>= \case
-            Left r -> pure (pure r)
-
-            Right (x, stream') -> liftIO $ do
-              let len = MVector.length mem
-              when (i + 1 == len) $
-                {-trace ("GROW from " ++ show len ++ " to " ++ show (2 * len)) $ -}
-                modifyMVar_ memRef $ flip MVector.grow len
-
-              mem <- readMVar memRef
-              MVector.write mem i (Right x)
-              MVector.write mem (i + 1) (Left stream')
-
-              pure $ loop i memRef
-
-        Right x -> {-trace ("Right @ " ++ show i) $ -} pure $ do
-          S.yield x
-          loop (i + 1) memRef
-
---      when (i >= MVector.length mem) $ liftIO $ do
---        let len = MVector.length mem
---        MVector.grow mem len
---        traverse_ (flip (MVector.write mem) Nothing) [ len .. 2 * len - 1 ]
---
---      read mem i >>= \case
---        Just x -> do
---          yield x
---          loop (i + 1) 
---
---      undefined
-
-{-read mem i >>= \case
-      Just x -> do
-        yield x
-        loop (i + 1)-}
-      
-
-
-{-S.next stream >>= \case
-      Left _ -> pure mempty
-      Right (x, stream') -> do-}
-        
-      
-    
 
 
 runLexer :: (Show a, Monad m) => LexTree a -> StringStream m -> LocatedStream m a
