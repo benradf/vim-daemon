@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
@@ -33,6 +34,9 @@ import System.IO (BufferMode(..), hSetBuffering, stdout)
 import qualified BufferView as BufferView
 import qualified Lex as Lex
 import qualified Location as Location
+import Location (Location(..), Located(..))
+import qualified CommaTextObject as CommaTextObject
+import CommaTextObject (FindBoundary(..))
 
 
 -- call ch_logfile('/tmp/channel.log', 'w')
@@ -198,6 +202,8 @@ main = do
           [ T.pack "message" .= "The result message"
           ]
 
+  -- getcurpos()
+
   let defaultHandler2 :: MonadIO m => String -> VimT m JSON.Value
       defaultHandler2 value = do
         loc@(Location.Location l c) <- getLocation
@@ -205,20 +211,37 @@ main = do
         bv <- BufferView.makeBufferView 2 loc $ \from to -> fmap (zip [ from .. to ]) $
                 evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
         let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
-        tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv
-        tokensAfter <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvAfter bv
+        let FindBoundary {..} = CommaTextObject.findBoundaryDefault
+        lhs <- findBoundaryLhs $ BufferView.bvBefore bv
+        rhs <- findBoundaryRhs $ BufferView.bvAfter bv
+        case (lhs, rhs) of
+          (Nothing, _) -> pure ()
+          (_, Nothing) -> pure ()
+          (Just (Located (Location lhsLine lhsCol) _), Just (Located (Location rhsLine rhsCol) _)) -> do
+            ex $ "call setpos('.', [0, " ++ show lhsLine ++ ", " ++ show (lhsCol + 1) ++ ", 0, 0])"  -- curswant?
+            normal "v"
+            ex $ "call setpos('.', [0, " ++ show rhsLine ++ ", " ++ show (rhsCol - 1) ++ ", 0, 0])"  -- curswant?
+            redraw True
+
+--        tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv
+--        tokensAfter <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvAfter bv
 --      tokensBefore <- Stream.toList =<< Stream.take 10 <$> lexer (BufferView.bvBefore bv)
 --      tokensAfter <- Stream.toList =<< Stream.take 10 <$>  lexer (BufferView.bvAfter bv)
-        pure $ JSON.object
-          [ T.pack "line" .= l
-          , T.pack "column" .= c
-          , T.pack "tokensBefore" .= (Location.unLocated <$> tokensBefore)
-          , T.pack "tokensAfter" .= (Location.unLocated <$> tokensAfter)
-          ]
+--        pure $ JSON.object
+--          [ T.pack "line" .= l
+--          , T.pack "column" .= c
+--          , T.pack "tokensBefore" .= (Location.unLocated <$> tokensBefore)
+--          , T.pack "tokensAfter" .= (Location.unLocated <$> tokensAfter)
+--          ]
+
+        pure $ JSON.toJSON ()
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
     lineNum <- evaluate @Integer "line('.')"
     liftIO $ appendFile "/tmp/vim-server.log" $ "evaluate result is " <> show lineNum <> "\n"
+    -- nmap <F2> <Plug>EditVimrc
+    ex ":let g:channel = job_getchannel(g:job)"
+    ex "nmap <F9> :call ch_evalexpr(g:channel, \"test\")<CR>"
     pure ()
 
   let decode

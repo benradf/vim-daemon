@@ -2,25 +2,29 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 
-module CommaTextObject where
+module CommaTextObject
+  ( FindBoundary(..)
+  , findBoundary
+  , findBoundaryDefault
+  , tests
+  ) where
 
 import Control.Applicative (Alternative(empty))
 import Control.Error.Util (hush)
 import Control.Monad.State (get, put)
 import Control.Monad.Trans.Class (MonadTrans(lift))
-import Control.Monad.Trans.Except (ExceptT(..), runExceptT)
+import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (evalStateT)
 import Data.Functor.Identity (Identity(..))
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
-import Streaming.Prelude (Of, Stream)
 import qualified Streaming.Prelude as S
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 
 import BufferView (BufferView(..), exampleLines, makeBufferViewFromLines)
-import Lex
+import Lex hiding (tests)
 import Location (Located(..), Location(..))
 
 data Token
@@ -53,17 +57,17 @@ lexer = runLexer lexTree
 
 
 findBoundary
-  :: (Monad m, Monoid r)
+  :: Monad m
   => (Token -> Bool)
   -> (Token -> Token -> Bool)
-  -> Stream (Of (Located Token)) m r
-  -> m (Either r (Located Token))
+  -> LocatedStream m Token
+  -> m (Maybe (Located Token))
 
 findBoundary isOpen matches stream =
-  evalStateT (runExceptT step) ([], stream)
+  evalStateT (runMaybeT step) ([], stream)
 
   where
-    step = get >>= traverse (ExceptT . lift . S.next) >>= \case
+    step = get >>= traverse extract >>= \case
       (stack, (lt@(Located _ token), stream'))
         | isOpen token ->
             put (token : stack, stream') *> step
@@ -76,14 +80,30 @@ findBoundary isOpen matches stream =
               | otherwise -> empty
             Nothing -> pure lt
 
+    extract = MaybeT . fmap hush . lift . S.next
 
-testFindBoundary :: String -> Maybe (Located Token)
-testFindBoundary string = hush $ runIdentity $ findBoundary isOpen matches (lexer $ Lex.makeStringStream string)
+
+data FindBoundary m = FindBoundary
+  { findBoundaryLhs :: StringStream m -> m (Maybe (Located Token))
+  , findBoundaryRhs :: StringStream m -> m (Maybe (Located Token))
+  }
+
+
+findBoundaryDefault :: Monad m => FindBoundary m
+findBoundaryDefault = FindBoundary
+  { findBoundaryLhs = findBoundary isClose (flip matches) . lexer
+  , findBoundaryRhs = findBoundary isOpen matches . lexer
+  }
   where
     isOpen = \case
       LeftParen -> True
       LeftBox -> True
       LeftBrace -> True
+      otherwise -> False
+    isClose = \case
+      RightParen -> True
+      RightBox -> True
+      RightBrace -> True
       otherwise -> False
     matches = curry $ \case
       (RightParen, LeftParen) -> True
@@ -196,3 +216,7 @@ tests = Tasty.testGroup "module CommaTextObject"
           =<< S.toList_ (lexer $ bvAfter bv)
     ]
   ]
+
+
+testFindBoundary :: String -> Maybe (Located Token)
+testFindBoundary string = runIdentity $ findBoundaryRhs findBoundaryDefault $ Lex.makeStringStream string

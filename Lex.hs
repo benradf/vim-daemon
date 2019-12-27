@@ -104,10 +104,8 @@ makeLexTree = go . Map.toList . Map.delete ""
     coerceNonEmpty = map (first NonEmpty.fromList)
 
 
---type LocatedStream m a = Stream m (Located a)
 type LocatedStream m a = Stream (Of (Located a)) m ()
 
---type StringStream m = Stream m (Located Char)
 type StringStream m = Stream (Of (Located Char)) m ()
 
 makeStringStream :: String -> StringStream Identity
