@@ -23,7 +23,6 @@ import Data.List (sort)
 import Data.Maybe (Maybe(..), listToMaybe)
 import Data.Monoid ((<>))
 import qualified Data.Vector.Mutable as MVector
-import Debug.Trace (trace)
 import qualified Streaming as S
 import Streaming.Prelude (Of, Stream)
 import qualified Streaming.Prelude as S
@@ -197,17 +196,27 @@ tests = Tasty.testGroup "module BufferView"
         (requests, getLines) <- mockGetLines 20
         let location = Location (LineNumber 12) (ColumnNumber 1)
         bv <- makeBufferView 5 location getLines
-        before <- map unLocated <$> S.toList_ (bvBefore bv)
         HUnit.assertEqual "before string incorrect"
           (reverse $ concat $ map (\n -> show n ++ "\n") [ 1 .. 12 ])
-          before
-        after <- map unLocated <$> S.toList_ (bvAfter bv)
+          =<< map unLocated <$> S.toList_ (bvBefore bv)
         HUnit.assertEqual "after string incorrect"
           (concat $ map (\n -> show n ++ "\n") [ 12 .. 20 ])
-          after
+          =<< map unLocated <$> S.toList_ (bvAfter bv)
         HUnit.assertEqual "requested lines incorrect"
           [ (8, 12), (3, 7), (1, 2), (12, 16), (17, 21) ]
           =<< readIORef requests
+
+    , HUnit.testCase "Lines are not requested multiple times" $ do
+        (requests, getLines) <- mockGetLines 11
+        let location = Location (LineNumber 9) (ColumnNumber 1)
+        bv <- makeBufferView 2 location getLines
+        S.toList_ (bvAfter bv)
+        S.toList_ (bvBefore bv)
+        S.toList_ (bvAfter bv)
+        S.toList_ (bvBefore bv)
+        HUnit.assertEqual ""
+          [ (1, 1), (2, 3), (4, 5), (6, 7), (8, 9), (9, 10), (11, 12) ]
+          =<< sort <$> readIORef requests
     ]
   ]
 
@@ -237,10 +246,10 @@ makeBufferViewFromLines
 
 makeBufferViewFromLines chunkSize cursorLocation lines =
   makeBufferView chunkSize cursorLocation $ \i j -> pure $ do
-    trace ("\x1b[33m[ " ++ show i ++ " .. " ++ show j ++ " ]\x1b[0m") (pure ())
+    --trace ("\x1b[33m[ " ++ show i ++ " .. " ++ show j ++ " ]\x1b[0m") (pure ())
     let (from, to) = (clamp (i :: LineNumber), clamp (j :: LineNumber))
     guard $ coerce i <= length lines && coerce j >= (1 :: Int)
-    trace ("\x1b[1;33m[ " ++ show from ++ " .. " ++ show to ++ " ]\x1b[0m") (pure ())
+    --trace ("\x1b[1;33m[ " ++ show from ++ " .. " ++ show to ++ " ]\x1b[0m") (pure ())
     take (coerce $ to - from + 1) $ drop (coerce $ from - 1) $ zip [ 1 .. ] lines
   where
     clamp n = coerce n `max` 1 `min` length lines
