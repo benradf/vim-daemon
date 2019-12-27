@@ -23,7 +23,7 @@ import Data.Foldable (foldMap)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-import Data.List (sortBy)
+import Data.List (sort)
 import Data.Maybe (fromMaybe)
 import Data.Monoid (Endo(..), (<>))
 import qualified Data.Vector as Vector
@@ -61,59 +61,43 @@ data BufferView m = BufferView
 makeBufferView
   :: MonadIO m
   => Location
-  -> (LineNumber -> LineNumber -> m [(LineNumber, Line)])
+  -> (LineNumber -> LineNumber -> m [(LineNumber, Line)])  -- expects: i <= j
   -> m (BufferView m)
 
 makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
---  let toCharStream f = Stream.split $ \(n, line) -> NonEmpty.fromList $ f $
---        zipWith (Located . Location n) [ 1 .. length line + 1 ] $ line ++ "\n"
-
-  -- Stream (Of (LineNumber, Line)) m ()
-  -- Stream (Of [Located Char    ]) m ()
-  -- Stream (Of (Located Char     ) m ()
-  let lhs = makeStream lineNum (advance 2 pred &&& advance 3 pred) (flip compare) (getLinesViaCache cache)
-      rhs = makeStream lineNum (advance 2 succ &&& advance 3 succ) compare (getLinesViaCache cache)
-
-{- λ :t map (\(i, (j, c)) -> Located (Location i j) c) . traverse (zip [ 1 .. ])
-   map (\(i, (j, c)) -> Located (Location i j) c) . traverse (zip [ 1 .. ])
-     :: (Location.LineNumber, [a]) -> [Located a]
-
-   λ :t map (uncurry ($)) . traverse (zip [ 1 .. ]) . first (uncurry . fmap Located . Location)
-   map (uncurry ($)) . traverse (zip [ 1 .. ]) . first (uncurry . fmap Located . Location)
-     :: (Location.LineNumber, [b]) -> [Located b]
--}
+  let lhs = makeStream lineNum (advance 2 pred minBound) ((fmap . fmap . fmap) reverse . flip $ getLinesViaCache cache)
+      rhs = makeStream lineNum (advance 5 succ maxBound) (getLinesViaCache cache)
 
   let mkLocated (i, (j, char)) = Located (Location i j) char
-  let toCharStream f = S.concat . S.map (map mkLocated . f . traverse (zip [ 1 .. ]))
-
-
---  bistream <- bimap (toCharStream reverse) (toCharStream id) <$>
---              pure (lhs, rhs)
---              --makeStreamPair lineNum (getLinesViaCache cache)
-
-  --(before, after) <- fromMaybe bistream <$> Stream.seek (columnNum - 1) bistream
-  -- TODO: Implement seek again
+  let toCharStream f = S.concat . S.map (map mkLocated . f . traverse (zip [ 1 .. ] . (++ "\n")))
 
   pure $ BufferView
     { bvBefore = toCharStream reverse lhs
-    , bvAfter = toCharStream reverse rhs
+    , bvAfter = toCharStream id rhs
     }
 
   where
-    advance n = appEndo . foldMap Endo . replicate n
+    advance :: Eq a => Int -> (a -> a) -> a -> a -> (a, Maybe a)
+    advance n step end i
+      | n <= 0 = (i, Just i)
+      | i == end = (i, Nothing)
+      | n == 1 = (i, Just (step i))
+      | otherwise = advance (n - 1) step end (step i)
 
-    getLinesViaCache cache from to = do
+    getLinesViaCache cache from to = do  -- expects: i <= j
+      --trace ("getLinesViaCache(from = " ++ show from ++ ", to = " ++ show to ++ ")") (pure ())
+
       let fromKey = coerce from
           toKey = coerce to
 
       cached <- lookupRange fromKey toKey <$> liftIO (readIORef cache)
 
-      if length cached == fromKey - toKey + 1
-        then pure $ first coerce <$> cached
-        else do
+      if length cached == toKey - fromKey + 1
+        then {-trace ("  \x1b[0;32mcache hit\x1b[0m: cached = " ++ show cached ++ ", fromKey = " ++ show fromKey ++ ", toKey = " ++ show toKey) $ -} pure $ first coerce <$> cached
+        else {-trace ("  \x1b[0;31mcache miss\x1b[0m") $-} do
           lines <- getLines from to
           liftIO $ modifyIORef cache $ addLinesToCache $ first coerce <$> lines
           pure lines
@@ -126,14 +110,13 @@ makeBufferView cursor@(Location lineNum columnNum) getLines = do
 
 
 makeStream
-  :: (Enum a, Eq a, Ord a, Show a, Show b, MonadIO m) -- Remove `Show a` and `Show b`
+  :: (Enum a, Eq a, Ord a, MonadIO m, Show a)  --remove `Show a`
   => a
-  -> (a -> (a, a))
-  -> (a -> a -> Ordering)
-  -> (a -> a -> m [(a, b)])
-  -> Stream (Of (a, b)) m ()
+  -> (a -> (a, Maybe a))
+  -> (a -> a -> m [(a, b)])  -- no expectation on ordering or i and j
+  -> Stream (Of (a, b)) m ()  -- stream ends when returned lines not exactly those requested
 
-makeStream index advance compare getRange = do
+makeStream index advance getRange = do
   next <- liftIO $ newIORef $ Just index
 
   loop next
@@ -143,63 +126,16 @@ makeStream index advance compare getRange = do
       Nothing -> pure mempty
       Just i -> do
         let (j, i') = advance i
-        elems <- getRange (min i j) (max i j)
+        elems <- getRange i j
 
         liftIO $ writeIORef next $
-          if map fst elems == [ min i j .. max i j ]
-            then Just i'
-            else trace ("Nothing for i = " ++ show i ++ ", j = " ++ show j ++ "\n  map fst elems = " ++ show (map fst elems) ++ ", [ min i j .. max i j ] = " ++ show [ min i j .. max i j ] ++ ", elems = " ++ show elems) Nothing
+          if sort (map fst elems) == [ min i j .. max i j ]
+            then i'
+            else Nothing
 
-        let sortedElems = sortBy (\(i, _) (j, _) -> compare i j) elems
-
-        pure $ S.each sortedElems <> loop next
+        pure $ S.each elems <> loop next
 
 
--- TODO: Use `Enum a` instead of `Int` here?
---makeStreamPair
---  :: MonadIO m
---  => Int
---  -> (Int -> Int -> m [(Int, a)])
---  -> m (Stream m (Int, a), Stream m (Int, a))
---
---makeStreamPair index getRange = do
---
---  nextAfter <- liftIO $ newIORef $ index
---  nextBefore <- liftIO $ newIORef $ index - 1
---
---  let
---    getNext2 next advance =
---      liftIO (readIORef next) >>= \case
---        Nothing -> pure []
---        Just i -> do
---          let j = pred $ advance i
---          elems <- getRange i j
---          liftIO $ writeIORef next $
---            if map fst elems == [ i .. j ]
---              then Just $ succ j
---              else Nothing
---          pure elems
---
---    getAfter = do
---      n <- liftIO $ readIORef nextAfter
---      elems <- getRange n (n + chunkSize - 1)
---      liftIO $ writeIORef nextAfter $ n + length elems
---      pure elems
---
---    getBefore = do
---      n <- liftIO $ readIORef nextBefore
---      elems <- getRange (n - chunkSize + 1) n
---      liftIO $ writeIORef nextBefore $ n - length elems
---      pure $ reverse elems
---
----- TODO: Fix negative range problems etc
---
---  (,)
---    <$> Stream.fromAction getBefore
---    <*> Stream.fromAction getAfter
---
---  where
---    chunkSize = 5
 
 
 newtype ReversedString = ReversedString String
@@ -251,10 +187,12 @@ makeBufferViewFromLines
 makeBufferViewFromLines cursorLocation lines =
   makeBufferView cursorLocation $ \i j -> pure $ do
     trace ("\x1b[33m[ " ++ show i ++ " .. " ++ show j ++ " ]\x1b[0m") (pure ())
-    let (from, to) = (max i 1, max j 0)
+    let (from, to) = (clamp (i :: LineNumber), clamp (j :: LineNumber))
+    guard $ coerce i <= length lines && coerce j >= (1 :: Int)
     trace ("\x1b[1;33m[ " ++ show from ++ " .. " ++ show to ++ " ]\x1b[0m") (pure ())
-    guard (from <= to)
     take (coerce $ to - from + 1) $ drop (coerce $ from - 1) $ zip [ 1 .. ] lines
+  where
+    clamp n = coerce n `max` 1 `min` length lines
 
 
 -- TODO: Tag lines and chars with correct Located Location.

@@ -92,6 +92,7 @@ tests = Tasty.testGroup "module CommaTextObject"
     [ HUnit.testCase "Run lexer on before and after streams" $ do
         bv <- makeBufferViewFromLines (Location 7 50) exampleLines
         tokens <- S.toList_ $ lexer (bvBefore bv)
+        tokens2 <- S.toList_ $ lexer (bvAfter bv)
 
         -- TODO: Race condition here because of IORef?
         -- Keeping references to earlier parts of a Stream.
@@ -101,9 +102,15 @@ tests = Tasty.testGroup "module CommaTextObject"
         putStr "\x1b[36;40m"
         putStrLn . map unLocated =<< S.toList_ (bvBefore bv)
         putStr "\x1b[0m"
-
         putStrLn ""
         mapM_ (putStrLn . show) tokens
+
+        putStrLn ""
+        putStr "\x1b[35;40m"
+        putStrLn . map unLocated =<< S.toList_ (bvAfter bv)
+        putStr "\x1b[0m"
+        putStrLn ""
+        mapM_ (putStrLn . show) tokens2
 
         -- TODO: Finish this unit test
         -- Should probably assert that all the token locations are correct.
