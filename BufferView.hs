@@ -11,35 +11,23 @@ module BufferView
   , tests
   ) where
 
-import Location (ColumnNumber(..), LineNumber(..), Located(..), Location(..), Offset, unLocated)
---import Stream (Stream)
-import qualified Stream as Stream
-import Control.Arrow ((&&&))
-import Control.Monad (guard, join)
+import Control.Monad (guard)
 import Control.Monad.IO.Class (MonadIO(..))
+import Data.Bifunctor (first)
 import Data.Coerce (coerce)
-import Data.Bifunctor (Bifunctor(..), bimap)
-import Data.Foldable (foldMap)
-import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
-import Data.IntMap (IntMap)
+import Data.IORef (modifyIORef, newIORef, readIORef, writeIORef)
 import qualified Data.IntMap as IntMap
 import Data.List (sort)
-import Data.Maybe (fromMaybe)
-import Data.Monoid (Endo(..), (<>))
-import qualified Data.Vector as Vector
-import qualified Data.List.NonEmpty as NonEmpty
-import Data.Function ((&))
-import Data.Functor (void)
 import Data.Maybe (Maybe(..), listToMaybe)
+import Data.Monoid ((<>))
+import Debug.Trace (trace)
 import qualified Streaming as S
-import qualified Streaming.Prelude as S
 import Streaming.Prelude (Of, Stream)
-
+import qualified Streaming.Prelude as S
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
-import qualified Test.Tasty.QuickCheck as QuickCheck
 
-import Debug.Trace (trace)
+import Location (ColumnNumber(..), LineNumber(..), Located(..), Location(..), Offset)
 
 
 --data Bistream m a b

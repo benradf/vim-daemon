@@ -45,6 +45,8 @@ executable vim-server
     text-zipper,
     transformers,
     vector
+  ghc-options:
+    -fwarn-unused-imports
   -- hs-source-dirs:
   default-language:    Haskell2010
 
@@ -77,5 +79,7 @@ executable test
     text-zipper,
     transformers,
     vector
+  ghc-options:
+    -fwarn-unused-imports
   -- hs-source-dirs:
   default-language:    Haskell2010

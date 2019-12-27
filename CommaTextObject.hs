@@ -4,29 +4,24 @@
 
 module CommaTextObject where
 
-import BufferView (BufferView(..), exampleLines, makeBufferViewFromLines)
-import Location (Located(..), Location(..), unLocated)
-import Lex
-import qualified Streaming as S
-import qualified Streaming.Prelude as S
-import Streaming.Prelude (Of, Stream)
-import qualified Stream as Stream
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Map as Map
-import qualified Test.Tasty as Tasty
-import qualified Test.Tasty.HUnit as HUnit
-import qualified Test.Tasty.QuickCheck as QuickCheck
-import Data.Functor.Identity (Identity(..))
-import qualified Data.List.NonEmpty as NonEmpty
 import Control.Applicative (Alternative(empty))
 import Control.Error.Util (hush)
 import Control.Monad.State (get, put)
 import Control.Monad.Trans.Class (MonadTrans(lift))
 import Control.Monad.Trans.Except (ExceptT(..), runExceptT)
-import Control.Monad.Trans.State (StateT, evalStateT)
-import Control.Monad.Trans.Maybe (MaybeT(..))
+import Control.Monad.Trans.State (evalStateT)
+import Data.Functor.Identity (Identity(..))
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map as Map
+import Streaming.Prelude (Of, Stream)
+import qualified Streaming.Prelude as S
+import qualified Test.Tasty as Tasty
+import qualified Test.Tasty.HUnit as HUnit
 
+import BufferView (BufferView(..), exampleLines, makeBufferViewFromLines)
+import Lex
+import Location (Located(..), Location(..), unLocated)
 
 data Token
   = Comma

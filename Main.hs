@@ -8,46 +8,28 @@
 
 module Main where
 
-import Control.Concurrent.MVar
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Free
-import Control.Monad.Trans.Reader
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
+import Control.Monad (join, void)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Cont (ContT(..))
+import Control.Monad.Trans.Reader (ReaderT(..), ask)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Types as JSON
 import qualified Data.ByteString.Lazy.Char8 as B
-import Data.Coerce (coerce)
-import Data.Functor
-import Data.Functor.Identity
-import Data.IORef
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import qualified Data.Map as Map
-import Data.Maybe
-import Data.Semigroup
+import Data.Maybe (fromMaybe)
+import Data.Semigroup ((<>))
 import qualified Data.Text as T
-import qualified Streaming as S
-import qualified Streaming.Prelude as S
-import Streaming.Prelude (Of, Stream)
-
-import Data.Vector ((!), (!?))
+import Data.Vector ((!?))
 import qualified Data.Vector as V
-import Prelude
-import System.IO
-import GHC.Generics
+import GHC.Generics (Generic)
+import qualified Streaming.Prelude as S
+import System.IO (BufferMode(..), hSetBuffering, stdout)
 
-import qualified Data.List.NonEmpty as NE
-import Data.List.NonEmpty (NonEmpty(..))
-import Control.Monad.State
-import Data.Bifunctor
-import Data.Bitraversable
-import Debug.Trace (trace)
-
-import qualified Test.Tasty as Tasty
-import qualified CommaTextObject as CommaTextObject
 import qualified BufferView as BufferView
 import qualified Lex as Lex
 import qualified Location as Location

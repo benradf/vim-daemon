@@ -15,44 +15,27 @@ module Lex
   ) where
 
 import Control.Applicative (Alternative(..), (<|>))
-import Control.Error.Util (hoistMaybe)
-import Control.Monad.State.Class (MonadState(..))
-import Data.Functor (($>))
-import Data.Functor.Identity (Identity(..))
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Control.Arrow ((&&&))
-import Control.Monad (guard, join, when)
-import Control.Monad.State (State, get, gets, modify, put)
+import Control.Error.Util (hoistMaybe)
+import Control.Monad (join)
+import Control.Monad.State (gets, put)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (StateT(..))
-import Data.Bifunctor (bimap, first, second)
-import Data.Bitraversable (bitraverse)
-import Data.List (groupBy)
+import Data.Bifunctor (bimap, first)
+import Data.Functor.Identity (Identity(..))
 import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
-import Data.Map (Map(..))
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (listToMaybe, maybeToList, mapMaybe)
-import Data.Maybe (maybeToList)
-import Data.Traversable (sequenceA)
-import Data.Semigroup ((<>))
-import Data.Tree (Tree(..))
-import qualified Data.Tree as Tree
 import qualified Streaming as S
-import qualified Streaming.Prelude as S
 import Streaming.Prelude (Of, Stream)
-
+import qualified Streaming.Prelude as S
 import qualified Test.Tasty as Tasty
 import qualified Test.Tasty.HUnit as HUnit
 import qualified Test.Tasty.QuickCheck as QuickCheck
-import qualified Test.QuickCheck as QuickCheck
-
-import Debug.Trace (trace)
-import System.IO.Unsafe (unsafePerformIO)
-import qualified Data.Tree.Pretty as Pretty
 
 import Location (Located(..), Location(..), makeLocatedString, unLocated)
 

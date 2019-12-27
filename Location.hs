@@ -13,14 +13,10 @@ module Location
   , unLocated
   ) where
 
+import qualified Data.Aeson as JSON
 import Data.Coerce (coerce)
 import qualified Test.Tasty as Tasty
-import qualified Test.Tasty.HUnit as HUnit
-import qualified Test.Tasty.QuickCheck as QuickCheck
-import qualified Test.QuickCheck as QuickCheck
 
-import qualified Data.Aeson as JSON
-import qualified Data.Aeson.Types as JSON
 
 type Offset = Int
 

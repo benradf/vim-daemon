@@ -17,28 +17,22 @@ module Stream
   , toList
   ) where
 
-import Prelude hiding (drop, take)
-import qualified Prelude as Prelude
-
-import qualified Test.Tasty as Tasty
-import qualified Test.Tasty.HUnit as HUnit
-import qualified Test.Tasty.QuickCheck as QuickCheck
-
-import Data.Foldable (and)
-import Data.Functor.Identity (Identity(..))
-import Data.List.NonEmpty (NonEmpty(..))
-import Data.Maybe (fromMaybe, isNothing)
-import qualified Data.List.NonEmpty as NonEmpty
-import Data.Monoid (Monoid(..))
-import Data.Semigroup (Semigroup(..))
-import Data.Tuple (swap)
-import Control.Monad ((>=>))
 import Control.Monad.State (get, put)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (StateT(..), execStateT)
-
-import Debug.Trace (trace)
+import Data.Foldable (and)
+import Data.Functor.Identity (Identity(..))
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Maybe (isNothing)
+import Data.Monoid (Monoid(..))
+import Data.Semigroup (Semigroup(..))
+import Data.Tuple (swap)
+import qualified Prelude as Prelude
+import Prelude hiding (drop, take)
+import qualified Test.Tasty as Tasty
+import qualified Test.Tasty.QuickCheck as QuickCheck
 
 
 data Stream m a
