@@ -13,15 +13,21 @@ module BufferView
 
 import Control.Arrow ((&&&))
 import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
+import Control.Error.Util (hush)
 import Control.Monad (guard, when)
 import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.State (get, put)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT(..))
+import Control.Monad.Trans.State (StateT(..), execStateT)
 import Data.Bifunctor (first)
 import Data.Coerce (coerce)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef, writeIORef)
 import qualified Data.IntMap as IntMap
 import Data.List (sort)
-import Data.Maybe (Maybe(..), listToMaybe)
+import Data.Maybe (Maybe(..), fromMaybe, listToMaybe)
 import Data.Monoid ((<>))
+import Data.Tuple (swap)
 import qualified Data.Vector.Mutable as MVector
 import qualified Streaming as S
 import Streaming.Prelude (Of, Stream)
@@ -59,14 +65,20 @@ makeBufferView chunkSize cursor@(Location lineNum columnNum) getLines = do
 
   cache <- liftIO $ newIORef $ IntMap.empty
 
-  let lhs = makeStream lineNum (advance chunkSize pred minBound) ((fmap . fmap . fmap) reverse . flip $ getLinesViaCache cache)
-      rhs = makeStream lineNum (advance chunkSize succ maxBound) (getLinesViaCache cache)
-
   let mkLocated (i, (j, char)) = Located (Location i j) char
   let toCharStream f = S.concat . S.map (map mkLocated . f . traverse (zip [ 1 .. ] . (++ "\n")))
 
-  before <- memoizeStream $ toCharStream reverse lhs
-  after <- memoizeStream $ toCharStream id rhs
+  lhs <- memoizeStream $ toCharStream reverse $
+    makeStream (lineNum - 1)
+      (advance chunkSize pred minBound)
+      ((fmap . fmap . fmap) reverse . flip $ getLinesViaCache cache)
+
+  rhs <- memoizeStream $ toCharStream id $
+    makeStream lineNum
+      (advance chunkSize succ maxBound)
+      (getLinesViaCache cache)
+
+  (before, after) <- fromMaybe (lhs, rhs) <$> seek (coerce columnNum - 1) (lhs, rhs)
 
   pure $ BufferView
     { bvBefore = before
@@ -161,6 +173,25 @@ memoizeStream stream = liftIO $ do
           memo (i + 1) vectorRef
 
 
+type StreamPair m a = (Stream (Of a) m (), Stream (Of a) m ())
+
+seek :: Monad m => Int -> StreamPair m a -> m (Maybe (StreamPair m a))
+seek n
+  | n > 0 = seekMany n
+  | n < 0 = seekMany (abs n) . swap
+  | otherwise = pure . Just
+
+  where
+    seekMany :: Monad m => Int -> StreamPair m a -> m (Maybe (StreamPair m a))
+    seekMany n = runMaybeT . execStateT (foldr1 (*>) (replicate n seekOne))
+
+    seekOne :: Monad m => StateT (StreamPair m a) (MaybeT m) ()
+    seekOne = do
+      (lhs, rhs) <- get
+      (x, rhs') <- lift $ MaybeT $ fmap hush $ S.next rhs
+      put (x `S.cons` lhs, rhs')
+
+
 
 newtype ReversedString = ReversedString String
   deriving (Eq, Show)
@@ -197,25 +228,25 @@ tests = Tasty.testGroup "module BufferView"
         let location = Location (LineNumber 12) (ColumnNumber 1)
         bv <- makeBufferView 5 location getLines
         HUnit.assertEqual "before string incorrect"
-          (reverse $ concat $ map (\n -> show n ++ "\n") [ 1 .. 12 ])
+          (reverse $ concat $ map (\n -> show n ++ "\n") [ 1 .. 11 ])
           =<< map unLocated <$> S.toList_ (bvBefore bv)
         HUnit.assertEqual "after string incorrect"
           (concat $ map (\n -> show n ++ "\n") [ 12 .. 20 ])
           =<< map unLocated <$> S.toList_ (bvAfter bv)
         HUnit.assertEqual "requested lines incorrect"
-          [ (8, 12), (3, 7), (1, 2), (12, 16), (17, 21) ]
+          [ (7, 11), (2, 6), (1, 1), (12, 16), (17, 21) ]
           =<< readIORef requests
 
     , HUnit.testCase "Lines are not requested multiple times" $ do
         (requests, getLines) <- mockGetLines 11
-        let location = Location (LineNumber 9) (ColumnNumber 1)
-        bv <- makeBufferView 2 location getLines
+        let location = Location (LineNumber 8) (ColumnNumber 1)
+        bv <- makeBufferView 3 location getLines
         S.toList_ (bvAfter bv)
         S.toList_ (bvBefore bv)
         S.toList_ (bvAfter bv)
         S.toList_ (bvBefore bv)
         HUnit.assertEqual ""
-          [ (1, 1), (2, 3), (4, 5), (6, 7), (8, 9), (9, 10), (11, 12) ]
+          [ (1, 1), (2, 4), (5, 7), (8, 10), (11, 13) ]
           =<< sort <$> readIORef requests
     ]
   ]
@@ -235,8 +266,6 @@ mockGetLines lineCount = do
         pure $ (id &&& show) <$> [ i' .. j' ]
 
 
-
-
 makeBufferViewFromLines
   :: MonadIO m
   => ChunkSize
@@ -246,10 +275,8 @@ makeBufferViewFromLines
 
 makeBufferViewFromLines chunkSize cursorLocation lines =
   makeBufferView chunkSize cursorLocation $ \i j -> pure $ do
-    --trace ("\x1b[33m[ " ++ show i ++ " .. " ++ show j ++ " ]\x1b[0m") (pure ())
     let (from, to) = (clamp (i :: LineNumber), clamp (j :: LineNumber))
     guard $ coerce i <= length lines && coerce j >= (1 :: Int)
-    --trace ("\x1b[1;33m[ " ++ show from ++ " .. " ++ show to ++ " ]\x1b[0m") (pure ())
     take (coerce $ to - from + 1) $ drop (coerce $ from - 1) $ zip [ 1 .. ] lines
   where
     clamp n = coerce n `max` 1 `min` length lines
