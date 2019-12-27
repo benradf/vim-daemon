@@ -155,7 +155,7 @@ memoizeStream stream = liftIO $ do
 
         Left stream ->
           S.next stream >>= \case
-            Left r -> pure (pure r)
+            Left r -> pure (pure r)  -- TODO: Should we memoize return value as well?
 
             Right (x, stream') -> liftIO $ do
               let len = MVector.length vector

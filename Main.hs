@@ -187,6 +187,10 @@ normal commands =
 -- it should also return the cursor to exactly where it was in the original
 -- window
 -- maybe it should be bound to a g "go" command?
+
+-- Idea For Another Vim Service / Plugin:
+-- Sorting of comma separated fields within parentheses.
+
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering

@@ -117,9 +117,9 @@ runLexer tree stream =
   S.effect $ S.next stream >>= \case
     Left _ -> pure mempty
 
-    Right (char, stream') -> {-trace "runLexer.next" $ -}
+    Right (char, stream') ->
       runMaybeT (runStateT attempt (pure tree, stream)) <&> \case
-        Just (token, (_, stream')) -> {-trace ("yield " ++ show token ) $ -} do
+        Just (token, (_, stream')) -> do
           S.yield (token <$ char)
           runLexer tree stream'  -- TODO: Factor out this line since it's in both branches of case
 
@@ -134,9 +134,9 @@ runLexer tree stream =
 
     step :: Monad m => StateT ([LexTree a], StringStream m) (MaybeT m) a
     step = (join $ gets $ lift . lift . traverse S.next) >>= \case
-      (trees, Right foo@(Located _ c, cs)) -> {-trace (show (fst foo)) $ -}
+      (trees, Right foo@(Located _ c, cs)) ->
         put (runLexTree c =<< trees, cs) *> attempt
-      (_, Left _) -> {-trace "EndOfStream" -} empty  -- End of stream
+      (_, Left _) -> empty  -- End of stream
 
     yielded trees = lift
       $ hoistMaybe $ listToMaybe
@@ -165,9 +165,6 @@ lexTree
 lexer :: String -> [Located Token]
 lexer = runIdentity . S.toList_ . runLexer lexTree . makeStringStream
 
-
--- Idea For Another Vim Service / Plugin:
--- Sorting of comma separated fields within parentheses.
 
 newtype TokenList a = TokenList
   { unTokenString :: [a]
