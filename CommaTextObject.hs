@@ -118,7 +118,7 @@ tests = Tasty.testGroup "module CommaTextObject"
   , Tasty.testGroup "Regression" [ ]
 
   , Tasty.testGroup "Unit"
-    [ HUnit.testCase "Mismatched brackets stops boundary search" $ do
+    [ HUnit.testCase "Mismatched brackets stop boundary search" $ do
         let b = testFindBoundary "1 + 2 * (3 + 4} , 5"
         HUnit.assertEqual "" Nothing b
 

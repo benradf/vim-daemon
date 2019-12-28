@@ -28,12 +28,10 @@ import qualified Data.Text as T
 import Data.Vector ((!?))
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import qualified Streaming.Prelude as S
 import System.IO (BufferMode(..), hSetBuffering, stdout)
 
 import qualified BufferView as BufferView
 import qualified Lex as Lex
-import qualified Location as Location
 import Location (Location(..), Located(..))
 import qualified CommaTextObject as CommaTextObject
 import CommaTextObject (FindBoundary(..))
@@ -222,10 +220,10 @@ main = do
           (Nothing, _) -> pure ()
           (_, Nothing) -> pure ()
           (Just (Located (Location lhsLine lhsCol) _), Just (Located (Location rhsLine rhsCol) _)) -> do
-            ex $ "call setpos('.', [0, " ++ show lhsLine ++ ", " ++ show (lhsCol + 1) ++ ", 0, 0])"  -- curswant?
+            ex $ "call setpos('.', [0, " ++ show lhsLine ++ ", " ++ show (lhsCol + 1) ++ ", 0, " ++ show (lhsCol + 1) ++ "])"  -- curswant?
             normal "v"
-            ex $ "call setpos('.', [0, " ++ show rhsLine ++ ", " ++ show (rhsCol - 1) ++ ", 0, 0])"  -- curswant?
-            redraw True
+            ex $ "call setpos('.', [0, " ++ show rhsLine ++ ", " ++ show (rhsCol - 1) ++ ", 0, " ++ show (rhsCol - 1) ++ "])"  -- curswant?
+            redraw False
 
 --        tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv
 --        tokensAfter <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvAfter bv
@@ -244,6 +242,7 @@ main = do
     lineNum <- evaluate @Integer "line('.')"
     liftIO $ appendFile "/tmp/vim-server.log" $ "evaluate result is " <> show lineNum <> "\n"
     -- nmap <F2> <Plug>EditVimrc
+    ex "call ch_logfile('/tmp/channel.log', 'w')"
     ex ":let g:channel = job_getchannel(g:job)"
     ex "nmap <F9> :call ch_evalexpr(g:channel, \"test\")<CR>"
     pure ()

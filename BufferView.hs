@@ -71,7 +71,7 @@ makeBufferView chunkSize cursor@(Location lineNum columnNum) getLines = do
   lhs <- memoizeStream $ toCharStream reverse $
     makeStream (lineNum - 1)
       (advance chunkSize pred minBound)
-      ((fmap . fmap . fmap) reverse . flip $ getLinesViaCache cache)
+      (\i j -> reverse <$> getLinesViaCache cache j i)
 
   rhs <- memoizeStream $ toCharStream id $
     makeStream lineNum
