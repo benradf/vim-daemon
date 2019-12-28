@@ -24,7 +24,8 @@ executable vim-server
     Lex,
     Location,
     Service,
-    Stream
+    Stream,
+    Vim
   -- other-extensions:
   build-depends:
     base >=4.10 && <4.13,
@@ -60,7 +61,8 @@ executable test
     Lex,
     Location,
     Service,
-    Stream
+    Stream,
+    Vim
   -- other-extensions:
   build-depends:
     base >=4.10 && <4.13,

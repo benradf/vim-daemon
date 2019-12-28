@@ -1,183 +1,34 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Main where
 
-import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
 import Control.Monad (join, void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Cont (ContT(..))
-import Control.Monad.Trans.Reader (ReaderT(..), ask)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
-import qualified Data.Aeson.Types as JSON
 import qualified Data.ByteString.Lazy.Char8 as B
-import Data.IntMap (IntMap)
-import qualified Data.IntMap as IntMap
-import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Semigroup ((<>))
 import qualified Data.Text as T
-import Data.Vector ((!?))
-import qualified Data.Vector as V
-import GHC.Generics (Generic)
 import System.IO (BufferMode(..), hSetBuffering, stdout)
 
 import qualified BufferView as BufferView
-import qualified Lex as Lex
-import Location (Location(..), Located(..))
-import qualified CommaTextObject as CommaTextObject
 import CommaTextObject (FindBoundary(..))
+import qualified CommaTextObject as CommaTextObject
+import Location (Location(..), Located(..))
+import Vim (VimT, runVimT)
+import qualified Vim as Vim
 
 
 -- call ch_logfile('/tmp/channel.log', 'w')
 -- let g:job = job_start(['dist/build/vim-server/vim-server'], {'mode': 'json'})
 -- let g:channel = job_getchannel(g:job)
 -- echo ch_evalexpr(g:channel, winlayout())
-
---putStrLn "[\"ex\", \"echo RECEIVED\"]"
---putStrLn "[\"normal\", \"0\"]"
---putStrLn "[\"redraw\", \"\"]"
-
-
-data Command
-  = RedrawCommand Bool
-  | ExCommand String
-  | NormalCommand String
-  | ExprCommand String
-  | CallCommand String [String]
-
-
---data VimT m a = VimT
---  { vimCallbacks :: IntMap (JSON.Value -> VimT m ())
---  , vimCallbackIndex :: Int
---  }
-
-
-data Callback m where
-  Callback
-    :: forall a b m . (JSON.FromJSON a, JSON.ToJSON b)
-    => (a -> ReaderT (MVar (ChannelState m)) m b)
-    -> Callback m
-
-
-type Channel m = JSON.Value -> m ()
-
-data ChannelState m = ChannelState
-  { csCallbacks :: IntMap (Callback m)
-  , csNextSeqNum :: Int
-  , csOutputChannel :: Channel m
-  , csDefaultHandler :: Int -> Callback m
-  }
-
-type VimT m a = MonadIO m => ContT () (ReaderT (MVar (ChannelState m)) m) a
-
-runVimT
-  :: ( MonadIO m
-     , JSON.FromJSON i
-     , JSON.ToJSON o
-     )
-  => Channel m -> (i -> VimT m o) -> VimT m a -> m (Channel m)
-runVimT output handler m = do
-  csRef <- liftIO $ newMVar $ ChannelState
-    { csCallbacks = mempty
-    , csNextSeqNum = -1
-    , csOutputChannel = output
-    , csDefaultHandler = \seqNum -> Callback $ \request -> flip runContT (const $ pure ()) $ do
-        response <- handler request
-        lift $ lift $ output $ JSON.toJSON $ Message seqNum $ JSON.toJSON response
-    }
-  runReaderT (runContT m (const $ pure ())) csRef
-
-  -- TODO: Clean up all the case statements (use ExceptT instead?).
-  pure $ \value -> case JSON.parseEither JSON.parseJSON value of
-    Left e -> error e
-    Right (Message seqNum payload) -> do
-      cs <- liftIO $ readMVar csRef
-      let handler (Callback callback) =
-            case JSON.parseEither JSON.parseJSON payload of
-              Left e2 -> error $ e2 ++ "\n" ++ "PAYLOAD:\n" ++ show payload
-              Right x -> JSON.toJSON <$> runReaderT (callback x) csRef
-      void $ case IntMap.lookup seqNum (csCallbacks cs) of
-        Just callback -> handler callback  -- TODO: Need to remove callback from map.
-        Nothing -> handler (csDefaultHandler cs seqNum)
-
-  where
-    --defaultHandlerCallback = Callback $ flip runContT (lift . output . JSON.toJSON) . handler
-    defaultHandlerCallback = Callback $
-      \request -> case JSON.parseEither JSON.parseJSON request of
-        Left e2 -> error e2
-        Right (Message seqNum payload) -> flip runContT (lift . output . JSON.toJSON) $
-          case JSON.fromJSON payload of
-            JSON.Error e3 -> error e3
-            JSON.Success x -> Message seqNum . JSON.toJSON <$> handler x
-
-
-data Message = Message
-  { mSeqNum :: Int
-  , mPayload :: JSON.Value
-  }
-  deriving Show
-
-instance JSON.ToJSON Message where
-  toJSON message = JSON.toJSON
-    [ JSON.toJSON $ mSeqNum message
-    , mPayload message
-    ]
-
-instance JSON.FromJSON Message where
-  parseJSON = JSON.withArray "Message" $ \array -> Message
-    <$> maybe (fail "missing seq num") JSON.parseJSON (array !? 0)
-    <*> maybe (fail "missing payload") JSON.parseJSON (array !? 1)
-
-
-evaluate :: JSON.FromJSON a => String -> VimT m a
-evaluate expression = ContT $ \k -> do
-  csRef <- ask
-  seqNum <- liftIO $ modifyMVar csRef $ \cs ->
-    let seqNum = pred $ csNextSeqNum cs
-    in pure $ (, seqNum) $ cs
-      { csCallbacks = IntMap.insert seqNum (Callback k) $ csCallbacks cs
-      , csNextSeqNum = seqNum
-      }
-
-  liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
-    [ JSON.String $ T.pack "expr"
-    , JSON.String $ T.pack expression
-    , JSON.Number $ fromInteger $ toInteger seqNum
-    ]
-
-  pure ()
-
-
-ex :: String -> VimT m ()
-ex expression =
-  liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
-    [ JSON.String $ T.pack "ex"
-    , JSON.String $ T.pack expression
-    ]
-
-redraw :: Bool -> VimT m ()
-redraw force =
-  liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
-    [ JSON.String $ T.pack "redraw"
-    , JSON.String $ T.pack $ if force then "force" else ""
-    ]
-
-normal :: String -> VimT m ()
-normal commands =
-  liftIO $ B.putStrLn $ JSON.encode $ JSON.Array $ V.fromList
-    [ JSON.String $ T.pack "normal"
-    , JSON.String $ T.pack commands
-    ]
-
 
 -- TODO: functionality to "pin visual selection"
 -- this would open a new window just big enough to hold the current selection
@@ -189,62 +40,52 @@ normal commands =
 -- Idea For Another Vim Service / Plugin:
 -- Sorting of comma separated fields within parentheses.
 
+
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
 
   let defaultHandler value = do
-        ex $ "call ch_setoptions(g:channel, {'timeout': 100})"
-        ex $ "echom 'defaultHandler got message: " <> show @String value <> "'"
-        lastLine <- evaluate @Integer "line('$')"
-        ex "echom 'test'"
-        normal "gg"
+        Vim.ex $ "call ch_setoptions(g:channel, {'timeout': 100})"
+        Vim.ex $ "echom 'defaultHandler got message: " <> show @String value <> "'"
+        lastLine <- Vim.evaluate @Integer "line('$')"
+        Vim.ex "echom 'test'"
+        Vim.normal "gg"
 
         pure $ JSON.object
           [ T.pack "message" .= "The result message"
           ]
 
-  -- getcurpos()
-
   let defaultHandler2 :: MonadIO m => String -> VimT m JSON.Value
       defaultHandler2 value = do
         loc@(Location.Location l c) <- getLocation
         liftIO $ appendFile "/tmp/vim-server.log" $ "defaultHandler2 received " <> show @String value <> "\n"
+
         bv <- BufferView.makeBufferView 2 loc $ \from to -> fmap (zip [ from .. to ]) $
-                evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
+                Vim.evaluate $ "getline(" ++ show from ++ ", " ++ show to ++ ")"
         let showLoc (Location.Located (Location.Location n m) x) = show n ++ ":" ++ show m ++ ":" ++ show x
         let FindBoundary {..} = CommaTextObject.findBoundaryDefault
         lhs <- findBoundaryLhs $ BufferView.bvBefore bv
         rhs <- findBoundaryRhs $ BufferView.bvAfter bv
+
         case (lhs, rhs) of
           (Nothing, _) -> pure ()
           (_, Nothing) -> pure ()
           (Just (Located (Location lhsLine lhsCol) _), Just (Located (Location rhsLine rhsCol) _)) -> do
-            ex $ "call setpos('.', [0, " ++ show lhsLine ++ ", " ++ show (lhsCol + 1) ++ ", 0, " ++ show (lhsCol + 1) ++ "])"  -- curswant?
-            normal "v"
-            ex $ "call setpos('.', [0, " ++ show rhsLine ++ ", " ++ show (rhsCol - 1) ++ ", 0, " ++ show (rhsCol - 1) ++ "])"  -- curswant?
-            redraw False
-
---        tokensBefore <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvBefore bv
---        tokensAfter <- S.toList_ $ S.take 10 $ lexer $ BufferView.bvAfter bv
---      tokensBefore <- Stream.toList =<< Stream.take 10 <$> lexer (BufferView.bvBefore bv)
---      tokensAfter <- Stream.toList =<< Stream.take 10 <$>  lexer (BufferView.bvAfter bv)
---        pure $ JSON.object
---          [ T.pack "line" .= l
---          , T.pack "column" .= c
---          , T.pack "tokensBefore" .= (Location.unLocated <$> tokensBefore)
---          , T.pack "tokensAfter" .= (Location.unLocated <$> tokensAfter)
---          ]
+            Vim.ex $ "call setpos('.', [0, " ++ show lhsLine ++ ", " ++ show (lhsCol + 1) ++ ", 0, " ++ show (lhsCol + 1) ++ "])"  -- curswant?
+            Vim.normal "v"
+            Vim.ex $ "call setpos('.', [0, " ++ show rhsLine ++ ", " ++ show (rhsCol - 1) ++ ", 0, " ++ show (rhsCol - 1) ++ "])"  -- curswant?
+            Vim.redraw False
 
         pure $ JSON.toJSON ()
 
   inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
-    lineNum <- evaluate @Integer "line('.')"
+    lineNum <- Vim.evaluate @Integer "line('.')"
     liftIO $ appendFile "/tmp/vim-server.log" $ "evaluate result is " <> show lineNum <> "\n"
     -- nmap <F2> <Plug>EditVimrc
-    ex "call ch_logfile('/tmp/channel.log', 'w')"
-    ex ":let g:channel = job_getchannel(g:job)"
-    ex "nmap <F9> :call ch_evalexpr(g:channel, \"test\")<CR>"
+    Vim.ex "call ch_logfile('/tmp/channel.log', 'w')"
+    Vim.ex ":let g:channel = job_getchannel(g:job)"
+    Vim.ex "nmap <F9> :call ch_evalexpr(g:channel, \"test\")<CR>"
     pure ()
 
   let decode
@@ -254,51 +95,5 @@ main = do
   void $ join $ traverse (inputCh . decode) . B.lines <$> B.getContents
 
 
-
-
-
 getLocation :: VimT m Location.Location
-getLocation = Location.Location <$> evaluate "line('.')" <*> evaluate "col('.')"
-
-
-
-data Token
-  = Comma
-  | LeftParen
-  | RightParen
-  | LeftBox
-  | RightBox
-  | LeftBrace
-  | RightBrace
-  | CarriageReturn
-  | LineFeed
-  | Fmap
-  | Apply
-  | Arrow
-  | Implies
-  | Mappend
-  deriving (Generic, JSON.ToJSON, Show)
-
---lexer :: Monad m => Lex.StringStream m -> m [Location.Located Token]
-lexer :: Monad m => Lex.StringStream m -> Lex.LocatedStream m Token
-lexer = Lex.runLexer lexTree
-  where
-    lexTree = Lex.makeLexTree $ Map.fromList
-      [ (",", Comma)
-      , ("(", LeftParen)
-      , (")", RightParen)
-      , ("[", LeftBox)
-      , ("]", RightBox)
-      , ("{", LeftBrace)
-      , ("}", RightBrace)
-      , ("\r", CarriageReturn)
-      , ("\n", LineFeed)
-      , ("<$>", Fmap)
-      , ("<*>", Apply)
-      , ("->", Arrow)
-      , ("=>", Implies)
-      , ("<>", Mappend)
-      ]
-
-
-
+getLocation = Location.Location <$> Vim.evaluate "line('.')" <*> Vim.evaluate "col('.')"
