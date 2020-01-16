@@ -12,6 +12,7 @@ module Main where
 import qualified BufferView as BufferView
 import qualified CommaTextObject as CommaTextObject
 import qualified Lex as Lex
+import qualified Loader as Loader
 import qualified Location as Location
 import qualified Stream as Stream
 import qualified Test.Tasty as Tasty
@@ -23,6 +24,7 @@ main = do
     [ BufferView.tests
     , CommaTextObject.tests
     , Lex.tests
+--    , Loader.tests
     , Location.tests
     , Stream.tests
     ]
