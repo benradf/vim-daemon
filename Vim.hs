@@ -6,6 +6,7 @@ module Vim
   ( VimT
   , evaluate
   , ex
+  , exs
   , normal
   , redraw
   , runVimT
@@ -22,6 +23,7 @@ import qualified Data.Aeson.Types as JSON
 import qualified Data.ByteString.Lazy.Char8 as B
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
+import qualified Data.List as List
 import qualified Data.Text as T
 import Data.Vector ((!?))
 import qualified Data.Vector as V
@@ -129,6 +131,9 @@ ex expression =
     [ JSON.String $ T.pack "ex"
     , JSON.String $ T.pack expression
     ]
+
+exs :: [String] -> VimT m ()
+exs = ex . List.intercalate " | "  -- "\n" also works
 
 normal :: String -> VimT m ()
 normal commands =

@@ -32,16 +32,47 @@
   echo g:.job1
   echo type(g:.job1)
 
+  for j in job_info() | if job_info(j).cmd == job_info(g:job).cmd | call job_stop(j) | endif | endfor
+
+-}
+
+
+
+
+
+{-
+
+function! s:launch_vim_server()
+  call ch_logfile('/tmp/channel.log')
+
+  let l:cmd = 'dist/build/vim-server/vim-server'
+
+  for j in job_info()
+    if job_info(j).cmd[0] == l:cmd
+      call job_stop(j)
+    endif
+  endfor
+
+  let g:job = job_start([l:cmd], {'mode': 'json'})
+  let g:channel = job_getchannel(g:job)
+
+  "echo ch_evalexpr(g:channel, winlayout())
+endfunction
+
+command! -nargs=0 LaunchVimServer call <SID>launch_vim_server()
+nnoremap <silent> <F5> :LaunchVimServer<CR>
+
 -}
 
 module Loader
-  ( tests
+  ( initialise
+  , tests
   ) where
 
 import Control.Error.Util (hush)
 import Control.Exception (ErrorCall, Exception, IOException, bracket, evaluate, try)
 import Control.Monad (guard, join)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Data.Bifunctor (second)
@@ -57,6 +88,27 @@ import qualified Test.Tasty.HUnit as HUnit
 
 import Vim (VimT)
 import qualified Vim as Vim
+
+
+initialise :: MonadIO m => VimT m ()
+initialise = do
+  --Vim.ex "echo 'job_info() = ' . string(job_info()) . ', g:job = ' . string(g:job)"
+  pid <- liftIO $ Posix.readSymbolicLink "/proc/self"
+  Vim.exs
+    [ "for j in job_info()"
+    , "  if job_info(j).process == '" <> pid <> "'"
+    , "    call ch_evalexpr(job_getchannel(j), j == g:job ? 'install' : 'selftest')"
+    , "  endif"
+    , "let j = v:none"
+    ]
+  pure ()
+
+
+
+
+
+
+
 
 
 findJobs :: IO [ProcessID]

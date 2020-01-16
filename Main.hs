@@ -20,6 +20,7 @@ import System.IO (BufferMode(..), hSetBuffering, stdout)
 import qualified BufferView as BufferView
 import CommaTextObject (FindBoundary(..))
 import qualified CommaTextObject as CommaTextObject
+import qualified Loader as Loader
 import Location (Location(..), Located(..))
 import Vim (VimT, runVimT)
 import qualified Vim as Vim
@@ -86,7 +87,7 @@ main = do
     Vim.ex "call ch_logfile('/tmp/channel.log', 'w')"
     Vim.ex ":let g:channel = job_getchannel(g:job)"
     Vim.ex "nmap <F9> :call ch_evalexpr(g:channel, \"test\")<CR>"
-    pure ()
+    Loader.initialise
 
   let decode
         = fromMaybe (error "invalid json")

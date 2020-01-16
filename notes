@@ -1,4 +1,6 @@
 let g:job1 = job_start(['/bin/bash', '-c', 'echo "[\"normal\", \"G\"]"'], {'mode': 'json'})
 
+help text-prop-intro
+
 
 
