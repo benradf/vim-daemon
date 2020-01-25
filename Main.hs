@@ -85,7 +85,7 @@ main = do
       defaultHandler3 _ = Vim.ex "call ch_evalexpr(g:channel, \"test\")<CR>" $> JSON.object []
 
 
-  inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler3 $ do
+  inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
     lineNum <- Vim.evaluate @Integer "line('.')"
     liftIO $ appendFile "/tmp/vim-server.log" $ "evaluate result is " <> show lineNum <> "\n"
     -- nmap <F2> <Plug>EditVimrc

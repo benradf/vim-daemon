@@ -1,3 +1,4 @@
+--{-# LANGUAGE BlockArguments #-}
 --{-# LANGUAGE LiberalTypeSynonyms #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -33,6 +34,7 @@ import qualified Data.Aeson.Types as JSON
 import Data.Bifunctor (second)
 import Data.Bits ((.&.))
 import Data.Coerce (coerce)
+import Data.Foldable (fold)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf)
 import Data.Maybe (catMaybes, fromJust, maybeToList)
 import Data.Monoid (Monoid(..))
@@ -128,7 +130,7 @@ instance JSON.FromJSON ContinuationCall where
 
 
 continuation :: (JSON.FromJSON a, JSON.ToJSON b) => String -> (a -> VimT m b) -> RemoteExec m
-continuation arg k = RemoteExec $ do
+continuation arg k = RemoteExec False $ do
   len <- gets Vector.length
   modify (`Vector.snoc` Continuation k)
   pure $ "ch_evalexpr(g:vimd,[" <> show len <> "," <> arg <> "])"
@@ -142,20 +144,58 @@ data Continuation m where
     -> Continuation m
 
 
-newtype RemoteExec m = RemoteExec
-  { runRemoteExec :: State (Vector (Continuation m)) String
+
+
+
+data RemoteExec m = RemoteExec
+--  { isSticky :: Bool -- TODO: Need to track "stickiness" on both sides L and R
+  { reSeparator :: Bool
+  , reExecute :: State (Vector (Continuation m)) String
+--  , reSeparator :: Maybe Char
   }
 
 instance Semigroup (RemoteExec m) where
-  RemoteExec lhs <> RemoteExec rhs = RemoteExec $ liftA2 (<>) lhs rhs
+  lhs <> rhs = RemoteExec
+    { reSeparator = reSeparator lhs
+    , reExecute =
+        let cat x y =
+              if reSeparator rhs
+                then x <> " | " <> dropWhile (== ' ') y
+                else x <> y
+        in liftA2 cat (reExecute lhs) (reExecute rhs)
+    }
+
+instance Monoid (RemoteExec m) where
+  mempty = RemoteExec False $ pure mempty
+  mappend = (<>)
 
 instance IsString (RemoteExec m) where
-  fromString = RemoteExec . pure . fromString
+  fromString = RemoteExec False . pure . fromString
+
+-- TODO: Track and display messages per second passed between vim and vimd
+
+
+ln :: RemoteExec m -> RemoteExec m
+ln (RemoteExec _ e) = RemoteExec True e
 
 
 test123 :: RemoteExec m
-test123 = "test"
+test123 = fold
+  [ ln "for j in job_info()"
+  , ln "  if job_info(j).process == '", pid, "'"
+  , ln "    call ch_evalexpr(job_getchannel(j), j == g:job ? 'install' : 'selftest')"
+  , ln "    call ", continuation "j" $ \() -> do
+           pure ()
+           pure ()
+           pure ()
+           pure ()
+  , ln "  endif"
+  , ln "let j = v:none"
+  ]
+  where
+    pid = "1234"
 
+--execRemote :: RemoteExec m -> 
 
 newtype Local m = Local
   { runLocal :: forall a b . (JSON.FromJSON a, JSON.ToJSON b) => a -> VimT m b
@@ -309,7 +349,7 @@ tests = Tasty.testGroup "module Loader"
         --HUnit.assertEqual "" "" ""
 
     , HUnit.testCase "RemoteExec registers continuation in vector" $ do
-        let RemoteExec s = continuation "a:mode" $ \() -> pure (10 :: Integer)
+        let RemoteExec _ s = continuation "a:mode" $ \() -> pure (10 :: Integer)
         HUnit.assertEqual "" "ch_evalexpr(g:vimd,[7,a:mode])" $
           evalState s (Vector.replicate 7 undefined)
     ]
