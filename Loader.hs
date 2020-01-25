@@ -9,6 +9,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -29,6 +30,7 @@ import Control.Monad.State (State(..), evalState, gets, modify)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.RWS (RWS, runRWS)
+import Data.Aeson ((.=), (.:))
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Types as JSON
 import Data.Bifunctor (second)
@@ -178,17 +180,65 @@ instance IsString (RemoteExec m) where
 ln :: RemoteExec m -> RemoteExec m
 ln (RemoteExec _ e) = RemoteExec True e
 
+{-
+  { 'status': 'run'
+  , 'cmd': ['dist/build/vim-server/vim-server']
+  , 'stoponexit': 'term'
+  , 'tty_out': ''
+  , 'exitval': 0
+  , 'exit_cb': '' 
+  , 'tty_in': ''
+  , 'channel': 'channel 2 open'
+  , 'process': 16919
+  }
+-}
+
+
+data JobInfo = JobInfo
+  { jiStatus :: String
+  , jiCmd :: [String]
+  , jiProcess :: Int
+  , jiTtyIn :: String
+  , jiTtyOut :: String
+  , jiExitVal :: Int
+  , jiStopOnExit :: String
+  }
+
+instance JSON.ToJSON JobInfo where
+  toJSON JobInfo {..} = JSON.object
+    [ "status"     .= jiStatus
+    , "cmd"        .= jiCmd
+    , "process"    .= jiProcess
+    , "tty_in"     .= jiTtyIn
+    , "tty_out"    .= jiTtyOut
+    , "exitval"    .= jiExitVal
+    , "stoponexit" .= jiStopOnExit
+    ]
+
+instance JSON.FromJSON JobInfo where
+  parseJSON = JSON.withObject "JobInfo" $ \v -> do
+    jiStatus     <- v .: "status"
+    jiCmd        <- v .: "cmd"
+    jiProcess    <- v .: "process"
+    jiTtyIn      <- v .: "tty_in"
+    jiTtyOut     <- v .: "tty_out"
+    jiExitVal    <- v .: "exitval"
+    jiStopOnExit <- v .: "stoponexit"
+    pure JobInfo {..}
+
+--instance JSON.FromJSON ContinuationCall where
+--  parseJSON = JSON.withArray "ContinuationCall" $ \array -> ContinuationCall
+--    <$> maybe (fail "missing index") JSON.parseJSON (array !? 0)
+--    <*> maybe (fail "missing arg") JSON.parseJSON (array !? 1)
+
 
 test123 :: RemoteExec m
 test123 = fold
   [ ln "for j in job_info()"
   , ln "  if job_info(j).process == '", pid, "'"
   , ln "    call ch_evalexpr(job_getchannel(j), j == g:job ? 'install' : 'selftest')"
-  , ln "    call ", continuation "j" $ \() -> do
-           pure ()
-           pure ()
-           pure ()
-           pure ()
+  , ln "    call ", continuation "job_info(j)" $ \(JobInfo {..}) -> do
+              pure $ head jiCmd
   , ln "  endif"
   , ln "let j = v:none"
   ]
