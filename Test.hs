@@ -24,7 +24,7 @@ main = do
     [ BufferView.tests
     , CommaTextObject.tests
     , Lex.tests
---    , Loader.tests
+    , Loader.tests
     , Location.tests
     , Stream.tests
     ]

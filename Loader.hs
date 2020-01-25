@@ -24,7 +24,7 @@ import Control.Exception (ErrorCall, Exception, IOException, bracket, evaluate, 
 import Control.Monad (guard, join, (>=>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (Reader(..))
-import Control.Monad.State (State(..), gets, modify)
+import Control.Monad.State (State(..), evalState, gets, modify)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.RWS (RWS, runRWS)
@@ -133,6 +133,7 @@ continuation arg k = RemoteExec $ do
   modify (`Vector.snoc` Continuation k)
   pure $ "ch_evalexpr(g:vimd,[" <> show len <> "," <> arg <> "])"
 
+-- let RemoteExec s = continuation "a:mode" $ \() -> pure 10 in evalState s (Vector.singleton undefined)
 
 data Continuation m where
   Continuation
@@ -284,27 +285,33 @@ tests = Tasty.testGroup "module Loader"
 
   , Tasty.testGroup "Unit"
     [ HUnit.testCase "Find executable path" $ do
-        putStrLn ""
+--Disable        putStrLn ""
 
-        putStrLn =<< Posix.readSymbolicLink "/proc/self/exe"
+--Disable        putStrLn =<< Posix.readSymbolicLink "/proc/self/exe"
+        Posix.readSymbolicLink "/proc/self/exe"
         --putStrLn =<< Posix.readSymbolicLink "/proc/11900/fd/0"
 
         mode <- Posix.fileMode <$> Posix.getSymbolicLinkStatus "/proc/self/fd/0"
-        putStrLn $ "ownerReadMode: " ++ show (mode .&. Posix.ownerReadMode /= 0)
-        putStrLn $ "ownerWriteMode: " ++ show (mode .&. Posix.ownerWriteMode /= 0)
+--Disable        putStrLn $ "ownerReadMode: " ++ show (mode .&. Posix.ownerReadMode /= 0)
+--Disable        putStrLn $ "ownerWriteMode: " ++ show (mode .&. Posix.ownerWriteMode /= 0)
 
-        putStrLn ""
+--Disable        putStrLn ""
 
         res <- hush <$> try @IOException (Posix.getSymbolicLinkStatus "/does/not/exist")
 
         --putStrLn $ show $ Posix.fileMode $ fromJust res
 
         --traverse putStrLn =<< readDirectory "/proc"
-        traverse (putStrLn . show) =<< findVimProcesses
+--Disable        traverse (putStrLn . show) =<< findVimProcesses
 
         pure ()
 
         --HUnit.assertEqual "" "" ""
+
+    , HUnit.testCase "RemoteExec registers continuation in vector" $ do
+        let RemoteExec s = continuation "a:mode" $ \() -> pure (10 :: Integer)
+        HUnit.assertEqual "" "ch_evalexpr(g:vimd,[7,a:mode])" $
+          evalState s (Vector.replicate 7 undefined)
     ]
   ]
 
