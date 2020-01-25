@@ -95,6 +95,10 @@ data Message = Message
   deriving Show
 
 instance JSON.ToJSON Message where
+--  toJSON = JSON.toJSON . sequenceA
+--    [ JSON.toJSON . mSeqNum
+--    , mPayload
+--    ]
   toJSON message = JSON.toJSON
     [ JSON.toJSON $ mSeqNum message
     , mPayload message
@@ -131,6 +135,8 @@ ex expression =
     [ JSON.String $ T.pack "ex"
     , JSON.String $ T.pack expression
     ]
+
+-- Need a version of `ex` that blocks like `evaluate`
 
 exs :: [String] -> VimT m ()
 exs = ex . List.intercalate " | "  -- "\n" also works

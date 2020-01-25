@@ -36,6 +36,7 @@ executable vim-server
     free,
     ghc-prim,
     aeson,
+  -- could probably do without mtl ...
     mtl,
     pretty-tree,
     QuickCheck,

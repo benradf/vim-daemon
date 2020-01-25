@@ -12,6 +12,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Lazy.Char8 as B
+import Data.Functor (($>))
 import Data.Maybe (fromMaybe)
 import Data.Semigroup ((<>))
 import qualified Data.Text as T
@@ -80,7 +81,11 @@ main = do
 
         pure $ JSON.toJSON ()
 
-  inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler2 $ do
+  let defaultHandler3 :: MonadIO m => String -> VimT m JSON.Value
+      defaultHandler3 _ = Vim.ex "call ch_evalexpr(g:channel, \"test\")<CR>" $> JSON.object []
+
+
+  inputCh <- runVimT (B.putStrLn . JSON.encode) defaultHandler3 $ do
     lineNum <- Vim.evaluate @Integer "line('.')"
     liftIO $ appendFile "/tmp/vim-server.log" $ "evaluate result is " <> show lineNum <> "\n"
     -- nmap <F2> <Plug>EditVimrc
