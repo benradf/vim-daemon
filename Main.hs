@@ -79,6 +79,15 @@ main = do
             Vim.ex $ "call setpos('.', [0, " ++ show rhsLine ++ ", " ++ show (rhsCol - 1) ++ ", 0, " ++ show (rhsCol - 1) ++ "])"  -- curswant?
             Vim.redraw False
 
+
+        Vim.ex "if 1 == 1 | echo 10 | endif"
+        Vim.evaluate @Integer "if 1 == 1 | echo 10 | endif"
+--        Vim.ex "  echo 10"
+--        Vim.ex "endif"
+
+--        foo <- Vim.evaluate @Integer "if 1 == 2 | return 5 | else | return 9 | endif"
+--        error $ show foo
+
         pure $ JSON.toJSON ()
 
   let defaultHandler3 :: MonadIO m => String -> VimT m JSON.Value

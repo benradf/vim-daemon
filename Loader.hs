@@ -11,6 +11,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Loader
@@ -37,8 +38,13 @@ import Data.Bifunctor (second)
 import Data.Bits ((.&.))
 import Data.Coerce (coerce)
 import Data.Foldable (fold)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, maybeToList)
+import Data.Maybe (fromMaybe)
 import Data.Monoid (Monoid(..))
 import Data.Semigroup (Semigroup(..))
 import Data.String (IsString(..))
@@ -133,9 +139,9 @@ instance JSON.FromJSON ContinuationCall where
 
 continuation :: (JSON.FromJSON a, JSON.ToJSON b) => String -> (a -> VimT m b) -> RemoteExec m
 continuation arg k = RemoteExec False $ do
-  len <- gets Vector.length
-  modify (`Vector.snoc` Continuation k)
-  pure $ "ch_evalexpr(g:vimd,[" <> show len <> "," <> arg <> "])"
+  index <- gets $ succ . fromMaybe 0 . fmap fst . IntMap.lookupLE maxBound
+  modify $ IntMap.insert index (Continuation k)
+  pure $ "ch_evalexpr(g:vimd,[" <> show index <> "," <> arg <> "])"
 
 -- let RemoteExec s = continuation "a:mode" $ \() -> pure 10 in evalState s (Vector.singleton undefined)
 
@@ -148,11 +154,30 @@ data Continuation m where
 
 
 
+{-
+
+  Vim.ex & Vim.evaluate turn a `RemoteExec m` into a `VimT m a`.
+  Before a particular RemoteExec is run, continuations are pushed onto
+  the continuation vector. These may be released immediately after the
+  RemoteExec finishes, or they may be kept around. If they are kept
+  around we can use the ContT part of VimT to ensure they are always
+  released.
+  But that means they can never outlive the VimT context so would be
+  pretty limited.
+  Probably better to have just "released immediately upon return" and
+  "never released" modes for running a RemoteExec.
+  The default mode would be "released upon return". There could be special
+  helper functions to do stuff like map key bindings to handlers and they
+  would pick the "never released" mode.
+
+-}
+
 
 data RemoteExec m = RemoteExec
 --  { isSticky :: Bool -- TODO: Need to track "stickiness" on both sides L and R
   { reSeparator :: Bool
-  , reExecute :: State (Vector (Continuation m)) String
+  --, reExecute :: State (Vector (Continuation m)) String
+  , reExecute :: State (IntMap (Continuation m)) String
 --  , reSeparator :: Maybe Char
   }
 
@@ -399,9 +424,9 @@ tests = Tasty.testGroup "module Loader"
         --HUnit.assertEqual "" "" ""
 
     , HUnit.testCase "RemoteExec registers continuation in vector" $ do
-        let RemoteExec _ s = continuation "a:mode" $ \() -> pure (10 :: Integer)
+        let RemoteExec _ s = continuation "a:mode" $ \() -> pure (122 :: Integer)
         HUnit.assertEqual "" "ch_evalexpr(g:vimd,[7,a:mode])" $
-          evalState s (Vector.replicate 7 undefined)
+          (evalState s $ IntMap.fromList $ [ 0 .. 6 ] <&> (, undefined))
     ]
   ]
 
@@ -524,3 +549,7 @@ Loader.hs:142:38: error:
 
 
 -}
+
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+as <&> f = f <$> as
+infixl 1 <&>
