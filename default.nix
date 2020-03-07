@@ -2,4 +2,5 @@ let
   pkgs = import <nixpkgs> { };
 
 in
-  pkgs.haskellPackages.callPackage ./vimd.nix { }
+  { vimd = pkgs.haskellPackages.callPackage ./vimd.nix { };
+  }
