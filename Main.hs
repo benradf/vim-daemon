@@ -28,7 +28,7 @@ import qualified Vim as Vim
 
 
 -- call ch_logfile('/tmp/channel.log', 'w')
--- let g:job = job_start(['dist/build/vim-server/vim-server'], {'mode': 'json'})
+-- let g:job = job_start(['result/bin/vimd'], {'mode': 'json'})
 -- let g:channel = job_getchannel(g:job)
 -- echo ch_evalexpr(g:channel, winlayout())
 
@@ -80,8 +80,9 @@ main = do
             Vim.redraw False
 
 
-        Vim.ex "if 1 == 1 | echo 10 | endif"
-        Vim.evaluate @Integer "if 1 == 1 | echo 10 | endif"
+--        Vim.ex "if 1 == 1 | echo 10 | endif"
+--        Vim.evaluate @Integer "if 1 == 1 | echo 10 | endif"
+
 --        Vim.ex "  echo 10"
 --        Vim.ex "endif"
 
@@ -101,7 +102,7 @@ main = do
     Vim.ex "call ch_logfile('/tmp/channel.log', 'w')"
     Vim.ex ":let g:channel = job_getchannel(g:job)"
     Vim.ex "nmap <F9> :call ch_evalexpr(g:channel, \"test\")<CR>"
-    Loader.initialise
+    --Loader.initialise
 
   let decode
         = fromMaybe (error "invalid json")
