@@ -274,12 +274,12 @@ makeBufferViewFromLines
   -> m (BufferView m)
 
 makeBufferViewFromLines chunkSize cursorLocation lines =
-  makeBufferView chunkSize cursorLocation $ \i j -> pure $ do
-    let (from, to) = (clamp (i :: LineNumber), clamp (j :: LineNumber))
-    guard $ coerce i <= length lines && coerce j >= (1 :: Int)
-    take (coerce $ to - from + 1) $ drop (coerce $ from - 1) $ zip [ 1 .. ] lines
+  makeBufferView chunkSize cursorLocation $ \(LineNumber i) (LineNumber j) -> pure $ do
+    let (from, to) = (clamp i, clamp j)
+    guard $ i <= length lines && j >= 1
+    take (to - from + 1) $ drop (from - 1) $ zip [ 1 .. ] lines
   where
-    clamp n = coerce n `max` 1 `min` length lines
+    clamp n = n `max` 1 `min` length lines
 
 
 exampleLines :: [String]
